@@ -1,0 +1,48 @@
+{
+  "name": "apollo-events",
+  "version": "1.0.0",
+  "description": "Centralized College Event Management & Discovery Platform for The Apollo University",
+  "main": "server/server.js",
+  "scripts": {
+    "dev": "concurrently \"node server/server.js\" \"vite\"",
+    "server": "node server/server.js",
+    "client": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "apollo-university",
+    "events-management",
+    "college-events"
+  ],
+  "author": "Antigravity AI",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.8",
+    "bcryptjs": "^2.4.3",
+    "clsx": "^2.1.0",
+    "cors": "^2.8.5",
+    "date-fns": "^3.6.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "firebase": "^12.17.1",
+    "framer-motion": "^11.1.7",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.368.0",
+    "mongoose": "^8.3.1",
+    "multer": "^1.4.5-lts.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.3",
+    "recharts": "^2.12.5",
+    "tailwind-merge": "^2.2.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.19",
+    "concurrently": "^8.2.2",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "vite": "^5.2.8"
+  }
+}

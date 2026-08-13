@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-apollo-light text-apollo-dark selection:bg-apollo-gold selection:text-apollo-dark;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Apollo Glassmorphism & Gold Glow utilities */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.gold-gradient-btn {
+  background: linear-gradient(135deg, #FBB91B 0%, #E5A40F 100%);
+  transition: all 0.2s ease-in-out;
+}
+.gold-gradient-btn:hover {
+  background: linear-gradient(135deg, #FFC533 0%, #FBB91B 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(251, 185, 27, 0.4);
+}
+
+.navy-gradient-bg {
+  background: linear-gradient(135deg, #04344B 0%, #064B6B 50%, #1789A5 100%);
+}
+
+.apollo-card-hover {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.apollo-card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 32px -8px rgba(6, 75, 107, 0.15);
+}
