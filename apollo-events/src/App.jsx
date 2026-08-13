@@ -4,7 +4,11 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Footer from './components/layout/Footer';
 
 // Pages
+// Pages
 import HomePage from './pages/HomePage';
+import EventsPage from './pages/EventsPage';
+import UpcomingEventsPage from './pages/UpcomingEventsPage';
+import RegisteredEventsPage from './pages/RegisteredEventsPage';
 import EventDetailsPage from './pages/EventDetailsPage';
 import CalendarPage from './pages/CalendarPage';
 import LoginPage from './pages/LoginPage';
@@ -15,6 +19,7 @@ import AdminEventsPage from './pages/AdminEventsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminCategoriesPage from './pages/AdminCategoriesPage';
 import AdminAuditLogsPage from './pages/AdminAuditLogsPage';
+
 
 // Protected Route Helper
 const ProtectedRoute = ({ children, allowedRoles, redirectTo }) => {
@@ -45,7 +50,9 @@ export default function App() {
             <Routes>
               {/* Public Discovery Routes */}
               <Route path="/" element={<HomePage />} />
-              <Route path="/events" element={<HomePage />} />
+              <Route path="/events" element={<EventsPage />} />
+              <Route path="/upcoming-events" element={<UpcomingEventsPage />}/>
+              <Route path="/registered-events" element={<RegisteredEventsPage />}/>
               <Route path="/events/:id" element={<EventDetailsPage />} />
               <Route path="/calendar" element={<CalendarPage />} />
               <Route path="/categories" element={<HomePage />} />
@@ -54,7 +61,6 @@ export default function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/faculty/login" element={<LoginPage />} />
               <Route path="/admin/login" element={<LoginPage />} />
-
               {/* Faculty Routes */}
               <Route
                 path="/faculty/dashboard"

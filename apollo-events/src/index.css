@@ -52,3 +52,25 @@
   transform: translateY(-4px);
   box-shadow: 0 16px 32px -8px rgba(6, 75, 107, 0.15);
 }
+/* ============================================================
+   HOME PAGE CAROUSEL
+============================================================ */
+
+.home-carousel-slide {
+  display: none;
+}
+
+.home-carousel-slide-active {
+  display: block;
+  animation: home-carousel-fade 0.5s ease-in-out;
+}
+
+@keyframes home-carousel-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
