@@ -8,6 +8,7 @@ import {
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useAuth, getPostLoginRoute } from "@/lib/auth-context";
+import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -98,8 +99,13 @@ export const LoginPage: React.FC = () => {
   const [signUpError, setSignUpError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // If already authenticated and not loading, redirect to destination portal
-  if (!isLoading && isAuthenticated && firebaseUser) {
+  // While checking session or actively authenticating with Microsoft, show loading screen
+  if (isLoading || isAuthenticating) {
+    return <AuthLoadingScreen />;
+  }
+
+  // If already authenticated, redirect to destination portal
+  if (isAuthenticated && firebaseUser) {
     return <Navigate to={getPostLoginRoute(currentRole, currentStatus)} replace />;
   }
 

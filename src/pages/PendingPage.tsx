@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { Link, useNavigate, Navigate } from "react-router-dom";
 import { useAuth, getPostLoginRoute } from "@/lib/auth-context";
+import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,8 +21,13 @@ import {
 import { toast } from "sonner";
 
 export const PendingPage: React.FC = () => {
-  const { firebaseUser, isAuthenticated, profile, role, status, refreshClaims, signOut } = useAuth();
+  const { firebaseUser, isAuthenticated, profile, role, status, isLoading, isAuthenticating, refreshClaims, signOut } = useAuth();
   const navigate = useNavigate();
+
+  // Show loading screen while auth resolves
+  if (isLoading || isAuthenticating) {
+    return <AuthLoadingScreen />;
+  }
 
   // If unauthenticated, redirect to login
   if (!isAuthenticated || !firebaseUser) {

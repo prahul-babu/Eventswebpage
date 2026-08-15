@@ -3,6 +3,7 @@ import { useNavigate, Navigate } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/lib/auth-context";
+import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
 import {
   requestAccessSchema,
   RequestAccessFormValues,
@@ -41,13 +42,18 @@ import {
 import { toast } from "sonner";
 
 export const OnboardingPage: React.FC = () => {
-  const { firebaseUser, isAuthenticated, profile, status, submitAccessRequest } = useAuth();
+  const { firebaseUser, isAuthenticated, profile, status, isLoading, isAuthenticating, submitAccessRequest } = useAuth();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedRole, setSelectedRole] = useState<"student" | "faculty">("student");
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Show loading screen while auth resolves
+  if (isLoading || isAuthenticating) {
+    return <AuthLoadingScreen />;
+  }
 
   // If user already has an active profile, redirect to home
   if (status === "ACTIVE") {
