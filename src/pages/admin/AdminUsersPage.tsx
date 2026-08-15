@@ -12,8 +12,9 @@ import {
   RotateCcw,
   Loader2,
   UserPlus,
+  Trash2,
 } from "lucide-react";
-import { useAdminUsersDirectory, useSetUserRole } from "@/lib/queries/adminUsers";
+import { useAdminUsersDirectory, useSetUserRole, useDeleteUser } from "@/lib/queries/adminUsers";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +56,10 @@ export const AdminUsersPage: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [newRole, setNewRole] = useState<UserRole>("student");
 
+  // Delete user modal
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+
   const { data: users, isLoading } = useAdminUsersDirectory({
     searchQuery,
     role: roleFilter,
@@ -63,6 +68,7 @@ export const AdminUsersPage: React.FC = () => {
   });
 
   const setRoleMutation = useSetUserRole();
+  const deleteUserMutation = useDeleteUser();
 
   // Export CSV of current filtered directory
   const handleExportCsv = () => {
@@ -120,6 +126,20 @@ export const AdminUsersPage: React.FC = () => {
       });
       setRoleModalOpen(false);
       setSelectedUser(null);
+    } catch {
+      // Handled by toast
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!userToDelete) return;
+    try {
+      await deleteUserMutation.mutateAsync({
+        targetUid: userToDelete.uid,
+        email: userToDelete.email,
+      });
+      setDeleteModalOpen(false);
+      setUserToDelete(null);
     } catch {
       // Handled by toast
     }
@@ -341,6 +361,19 @@ export const AdminUsersPage: React.FC = () => {
                               <RotateCcw className="w-3.5 h-3.5" />
                               <span>Reset to Pending</span>
                             </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setUserToDelete(user);
+                                setDeleteModalOpen(true);
+                              }}
+                              className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 font-medium"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Remove User Record</span>
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>
@@ -393,7 +426,38 @@ export const AdminUsersPage: React.FC = () => {
               Cancel
             </Button>
             <Button size="sm" onClick={handleConfirmRoleChange} disabled={setRoleMutation.isPending} className="rounded-xl text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold">
-              Confirm Role Change
+              {setRoleMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Confirm Role Change"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete User Confirmation Modal */}
+      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <DialogContent className="max-w-md rounded-2xl p-6">
+          <DialogHeader className="text-left space-y-1">
+            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <DialogTitle className="text-lg font-bold text-slate-900">
+              Remove User Record
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Are you sure you want to remove the record for <strong className="text-slate-900">{userToDelete?.displayName}</strong> ({userToDelete?.email})? This action will remove this identity from the campus directory.
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="pt-3 flex items-center justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setDeleteModalOpen(false)} className="rounded-xl text-xs">
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleConfirmDelete}
+              disabled={deleteUserMutation.isPending}
+              className="rounded-xl text-xs bg-rose-600 hover:bg-rose-700 text-white font-bold"
+            >
+              {deleteUserMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Confirm Remove"}
             </Button>
           </DialogFooter>
         </DialogContent>
