@@ -32,9 +32,9 @@ import {
 import { toast } from "sonner";
 
 export const AdminAnalyticsPage: React.FC = () => {
-  const { data, isLoading } = useAdminPlatformAnalytics();
   const [academicYear, setAcademicYear] = useState("2025-26");
   const [dateRange, setDateRange] = useState("all");
+  const { data, isLoading } = useAdminPlatformAnalytics(academicYear, dateRange);
 
   const handleExportCsv = () => {
     if (!data) return;

@@ -29,15 +29,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-const MOCK_MONTHLY_EVENTS = [
-  { month: "Jan", events: 8, registrations: 340 },
-  { month: "Feb", events: 14, registrations: 680 },
-  { month: "Mar", events: 22, registrations: 1240 },
-  { month: "Apr", events: 19, registrations: 980 },
-  { month: "May", events: 28, registrations: 1540 },
-  { month: "Jun", events: 35, registrations: 2100 },
-];
-
 export const AdminDashboardPage: React.FC = () => {
   const { data: metrics, isLoading: isMetricsLoading } = useAdminDashboardMetrics();
   const { data: recentLogs, isLoading: isLogsLoading } = useAdminAuditLogs();
@@ -184,7 +175,7 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
             <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={MOCK_MONTHLY_EVENTS}>
+                <BarChart data={metrics?.monthlyChartData || []}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} />
@@ -205,11 +196,11 @@ export const AdminDashboardPage: React.FC = () => {
                   Verified campus attendance and seat bookings over time
                 </CardDescription>
               </div>
-              <Badge variant="emerald" className="text-[10px]">+24% vs Last Term</Badge>
+              <Badge variant="emerald" className="text-[10px]">{metrics?.registrationGrowthBadge || "Active Term"}</Badge>
             </div>
             <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={MOCK_MONTHLY_EVENTS}>
+                <LineChart data={metrics?.monthlyChartData || []}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} />

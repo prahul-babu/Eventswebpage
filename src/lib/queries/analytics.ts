@@ -260,12 +260,14 @@ export interface AdminPlatformAnalytics {
   topOrganisers: { id: string; name: string; email?: string; eventsCount: number; registrationsCount: number }[];
 }
 
+import { safeToDate } from "@/lib/utils";
+
 /**
  * Hook: useAdminPlatformAnalytics
  */
-export function useAdminPlatformAnalytics() {
+export function useAdminPlatformAnalytics(academicYear: string = "2025-26", dateRange: string = "all") {
   return useQuery({
-    queryKey: ["analytics", "adminPlatform"],
+    queryKey: ["analytics", "adminPlatform", academicYear, dateRange],
     queryFn: async (): Promise<AdminPlatformAnalytics> => {
       // Fetch live events, registrations, and users for analytics
       const [eventsSnap, regsSnap, usersSnap] = await Promise.all([
@@ -274,16 +276,51 @@ export function useAdminPlatformAnalytics() {
         getDocs(collection(db, "users")),
       ]);
 
-      const events = eventsSnap.docs.map((d) => d.data());
-      const registrations = regsSnap.docs.map((d) => d.data());
-      const users = usersSnap.docs.map((d) => d.data());
+      let events = eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+      let registrations = regsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+      const rawUsers = usersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+
+      // Deduplicate users by email
+      const emailMap = new Map<string, any>();
+      for (const u of rawUsers) {
+        const emailKey = (u.email || "").toLowerCase().trim();
+        if (!emailKey) continue;
+        const existing = emailMap.get(emailKey);
+        if (!existing) {
+          emailMap.set(emailKey, u);
+        } else {
+          const getScore = (role?: string) => (role === "admin" ? 3 : role === "faculty" ? 2 : 1);
+          if (getScore(u.role) > getScore(existing.role)) {
+            emailMap.set(emailKey, u);
+          }
+        }
+      }
+      const users = Array.from(emailMap.values());
 
       let studentCount = 0;
       let facultyCount = 0;
       users.forEach((u) => {
-        if (u.role === "student") studentCount++;
-        if (u.role === "faculty") facultyCount++;
+        if (u.role === "student" && u.status === "ACTIVE") studentCount++;
+        if (u.role === "faculty" && u.status === "ACTIVE") facultyCount++;
       });
+
+      // Filter by dateRange quarter if applicable
+      if (dateRange && dateRange !== "all") {
+        const getQuarterMonthRange = (q: string): number[] => {
+          switch (q) {
+            case "q1": return [7, 8, 9]; // Aug, Sep, Oct
+            case "q2": return [10, 11, 0]; // Nov, Dec, Jan
+            case "q3": return [1, 2, 3]; // Feb, Mar, Apr
+            case "q4": return [4, 5, 6]; // May, Jun, Jul
+            default: return [];
+          }
+        };
+        const allowedMonths = new Set(getQuarterMonthRange(dateRange));
+        if (allowedMonths.size > 0) {
+          events = events.filter((e) => allowedMonths.has(safeToDate(e.startAt || e.createdAt).getMonth()));
+          registrations = registrations.filter((r) => allowedMonths.has(safeToDate(r.registeredAt || r.createdAt).getMonth()));
+        }
+      }
 
       const totalRegistrations = registrations.length;
       const totalAttended = registrations.filter((r) => r.checkedIn || r.status === "ATTENDED").length;
@@ -292,7 +329,7 @@ export function useAdminPlatformAnalytics() {
       const attendanceRate = totalRegistrations > 0 ? Math.round((totalAttended / totalRegistrations) * 1000) / 10 : 0;
       const studentEngagementRate = studentCount > 0 ? Math.round((totalAttended / studentCount) * 1000) / 10 : 0;
 
-      // Category breakdown
+      // Category breakdown from real events
       const catMap: Record<string, number> = {};
       const deptMap: Record<string, number> = {};
       const organiserMap: Record<string, { name: string; email?: string; eventsCount: number; registrationsCount: number }> = {};
@@ -304,17 +341,18 @@ export function useAdminPlatformAnalytics() {
         const dept = ev.department || "General";
         deptMap[dept] = (deptMap[dept] || 0) + 1;
 
-        if (ev.organiserId) {
-          if (!organiserMap[ev.organiserId]) {
-            organiserMap[ev.organiserId] = {
-              name: ev.organiserName || "Faculty",
-              email: ev.organiserEmail || "faculty@apollo.edu.in",
+        const orgKey = ev.organiserId || ev.organiserEmail || ev.organiserName;
+        if (orgKey) {
+          if (!organiserMap[orgKey]) {
+            organiserMap[orgKey] = {
+              name: ev.organiserName || "Faculty Organiser",
+              email: ev.organiserEmail || "faculty@apollouniversity.edu.in",
               eventsCount: 0,
               registrationsCount: 0,
             };
           }
-          organiserMap[ev.organiserId].eventsCount++;
-          organiserMap[ev.organiserId].registrationsCount += Number(ev.registeredCount) || 0;
+          organiserMap[orgKey].eventsCount++;
+          organiserMap[orgKey].registrationsCount += Number(ev.registeredCount) || 0;
         }
       });
 
@@ -331,20 +369,45 @@ export function useAdminPlatformAnalytics() {
         .sort((a, b) => b.eventsCount - a.eventsCount)
         .slice(0, 10);
 
-      // Monthly aggregates
-      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const eventsPerMonth = months.slice(0, 8).map((m, i) => ({
-        month: m,
-        published: 3 + (i % 4),
-        completed: 2 + (i % 3),
-        draft: 1 + (i % 2),
-      }));
+      // REAL Monthly Aggregates for Academic Year (Aug through Jul)
+      const ayMonthLabels = ["Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"];
+      const ayMonthIndices = [7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6];
 
-      const registrationsTrend = months.slice(0, 8).map((m, i) => ({
-        month: m,
-        registrations: 45 + i * 18,
-        revenue: (45 + i * 18) * 150,
-      }));
+      const eventsPerMonth = ayMonthLabels.map((monthName, idx) => {
+        const targetMonth = ayMonthIndices[idx];
+        const monthEvents = events.filter((ev) => {
+          const d = safeToDate(ev.startAt || ev.createdAt);
+          return d.getMonth() === targetMonth;
+        });
+
+        const published = monthEvents.filter((e) => e.status === "PUBLISHED" || e.status === "ONGOING").length;
+        const completed = monthEvents.filter((e) => e.status === "COMPLETED").length;
+        const draft = monthEvents.filter((e) => e.status === "DRAFT" || e.status === "PENDING_APPROVAL").length;
+
+        return {
+          month: monthName,
+          published,
+          completed,
+          draft,
+        };
+      });
+
+      const registrationsTrend = ayMonthLabels.map((monthName, idx) => {
+        const targetMonth = ayMonthIndices[idx];
+        const monthRegs = registrations.filter((r) => {
+          const d = safeToDate(r.registeredAt || r.createdAt);
+          return d.getMonth() === targetMonth;
+        });
+
+        const regsCount = monthRegs.length;
+        const revenue = monthRegs.reduce((acc, r) => acc + (Number(r.amountPaid) || 0), 0);
+
+        return {
+          month: monthName,
+          registrations: regsCount,
+          revenue,
+        };
+      });
 
       return {
         totalUsers: users.length,
@@ -364,5 +427,6 @@ export function useAdminPlatformAnalytics() {
         topOrganisers,
       };
     },
+    staleTime: 1000 * 30,
   });
 }

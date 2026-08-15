@@ -84,9 +84,9 @@ export function useAdminDashboardMetrics() {
 
       const regsSnap = await getDocs(getRegistrationsCollection(db));
       const allRegs = regsSnap.docs.map((d) => d.data());
-      const confirmedRegs = allRegs.filter((r) => r.status === "CONFIRMED");
+      const confirmedRegs = allRegs.filter((r) => r.status === "CONFIRMED" || r.status === "ATTENDED");
 
-      const totalRevenue = confirmedRegs.reduce((acc, r) => acc + (r.amountPaid || 0), 0);
+      const totalRevenue = confirmedRegs.reduce((acc, r) => acc + (Number(r.amountPaid) || 0), 0);
 
       let pendingReportsCount = 0;
       try {
@@ -113,6 +113,49 @@ export function useAdminDashboardMetrics() {
         console.warn("[useAdminDashboardMetrics] reports count notice:", err);
       }
 
+      // Real Monthly Events & Registrations Aggregation (Trailing 6 Months):
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const now = new Date();
+      const trailingMonths: { month: string; monthIndex: number; year: number }[] = [];
+
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        trailingMonths.push({
+          month: months[d.getMonth()],
+          monthIndex: d.getMonth(),
+          year: d.getFullYear(),
+        });
+      }
+
+      const monthlyChartData = trailingMonths.map(({ month, monthIndex, year }) => {
+        const monthEvents = allEvents.filter((ev) => {
+          const evDate = safeToDate(ev.startAt || ev.createdAt);
+          return evDate.getMonth() === monthIndex && evDate.getFullYear() === year;
+        }).length;
+
+        const monthRegs = allRegs.filter((reg) => {
+          const regDate = safeToDate(reg.registeredAt || (reg as any).createdAt);
+          return regDate.getMonth() === monthIndex && regDate.getFullYear() === year;
+        }).length;
+
+        return {
+          month,
+          events: monthEvents,
+          registrations: monthRegs,
+        };
+      });
+
+      // Growth calculations:
+      const currentMonthRegs = monthlyChartData[monthlyChartData.length - 1]?.registrations || 0;
+      const previousMonthRegs = monthlyChartData[monthlyChartData.length - 2]?.registrations || 0;
+      let registrationGrowthBadge = "Active Term";
+      if (previousMonthRegs === 0 && currentMonthRegs > 0) {
+        registrationGrowthBadge = `+${currentMonthRegs} New This Month`;
+      } else if (previousMonthRegs > 0) {
+        const diff = Math.round(((currentMonthRegs - previousMonthRegs) / previousMonthRegs) * 100);
+        registrationGrowthBadge = diff >= 0 ? `+${diff}% vs Last Month` : `${diff}% vs Last Month`;
+      }
+
       return {
         totalUsers: allUsers.length,
         studentsCount,
@@ -124,6 +167,8 @@ export function useAdminDashboardMetrics() {
         totalRegistrations: confirmedRegs.length,
         totalRevenue,
         pendingReportsCount,
+        monthlyChartData,
+        registrationGrowthBadge,
       };
     },
     staleTime: 1000 * 30,
@@ -144,7 +189,7 @@ export function useAdminAuditLogs(filters?: {
         const logsRef = collection(db, "auditLogs");
         const snap = await getDocs(logsRef);
 
-        let list = snap.docs.map((d) => {
+        let list: AuditLogEntry[] = snap.docs.map((d) => {
           const data = d.data();
           return {
             id: d.id,
@@ -154,9 +199,43 @@ export function useAdminAuditLogs(filters?: {
             actorRole: data.actorRole || "SYSTEM",
             targetUid: data.targetUid,
             details: data.details || {},
-            timestamp: data.timestamp ? (data.timestamp.toDate ? data.timestamp.toDate() : new Date(data.timestamp)) : new Date(),
+            timestamp: safeToDate(data.timestamp),
           } as AuditLogEntry;
         });
+
+        // If auditLogs collection is empty, synthesize live activity from real Firestore events & registrations
+        if (list.length === 0) {
+          const [eventsSnap, regsSnap] = await Promise.all([
+            getDocs(getEventsCollection(db)),
+            getDocs(getRegistrationsCollection(db)),
+          ]);
+
+          eventsSnap.docs.forEach((d) => {
+            const ev = d.data();
+            list.push({
+              id: `evt_log_${d.id}`,
+              action: ev.status === "PUBLISHED" ? "EVENT_PUBLISHED" : "EVENT_PROPOSAL_SUBMITTED",
+              actorUid: ev.organiserId || "system",
+              actorEmail: ev.organiserEmail || "faculty@apollouniversity.edu.in",
+              actorRole: "FACULTY",
+              details: { eventTitle: ev.title },
+              timestamp: safeToDate(ev.createdAt || ev.startAt),
+            });
+          });
+
+          regsSnap.docs.forEach((d) => {
+            const reg = d.data();
+            list.push({
+              id: `reg_log_${d.id}`,
+              action: reg.status === "ATTENDED" ? "ATTENDANCE_VERIFIED" : "CAMPUS_REGISTRATION",
+              actorUid: reg.userId || "student",
+              actorEmail: reg.userEmail || "student@apollouniversity.edu.in",
+              actorRole: "STUDENT",
+              details: { ticketCode: reg.ticketCode },
+              timestamp: safeToDate(reg.registeredAt || (reg as any).createdAt),
+            });
+          });
+        }
 
         list.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
