@@ -360,25 +360,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         console.log("[AUTH-6] UID:", user.uid);
         console.log("[AUTH-7] Firestore profile loading: users/" + user.uid);
 
-        const lowerEmail = (user.email || "").toLowerCase();
-        let fallbackRole: UserRole = "student";
-        let fallbackStatus: UserStatus = "ACTIVE";
-
-        if (
-          lowerEmail.includes("admin") ||
-          lowerEmail === "panukurahulbabu@gmail.com" ||
-          lowerEmail === "122411510302@apollouniversity.edu.in" ||
-          lowerEmail === "122411520313@apollouniversity.edu.in"
-        ) {
-          fallbackRole = "admin";
-        } else if (
-          lowerEmail.includes("faculty") ||
-          lowerEmail.includes("dr.") ||
-          lowerEmail.includes("prof")
-        ) {
-          fallbackRole = "faculty";
-          fallbackStatus = "PENDING";
-        }
+        const fallbackRole: UserRole = "student";
+        const fallbackStatus: UserStatus = "ACTIVE";
 
         const userDocRef = doc(db, "users", user.uid);
 
@@ -390,7 +373,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
               userData = docSnap.data();
               console.log("[AUTH-8] Firestore profile received", userData);
 
-              const parsedRole = (userData.role ? String(userData.role).toLowerCase() : fallbackRole) as UserRole;
+              const parsedRole = (userData.role ? String(userData.role).toLowerCase() : "student") as UserRole;
               const rawStatus = (userData.status ? String(userData.status).toUpperCase() : "ACTIVE");
               const parsedStatus = (
                 rawStatus === "PENDING"
@@ -441,9 +424,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
               const currentUid = user.uid;
               const currentEmail = user.email || "";
               const emailKey = currentEmail.toLowerCase().trim();
-              let effectiveRole: UserRole = fallbackRole;
-              let effectiveStatus: UserStatus = fallbackStatus;
-              let effectiveDept = fallbackRole === "admin" ? "Institutional Administration" : "School of Technology";
+              let effectiveRole: UserRole = "student";
+              let effectiveStatus: UserStatus = "ACTIVE";
+              let effectiveDept = "School of Technology";
               let effectiveName = user.displayName || currentEmail.split("@")[0] || "Campus Member";
               let effectiveRoll: string | undefined = undefined;
               let effectiveEmp: string | undefined = undefined;
