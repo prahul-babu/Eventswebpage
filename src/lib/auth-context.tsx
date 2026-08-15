@@ -433,9 +433,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
         console.log("=== AUTH STATE ===");
-        console.log("Firebase user:", user);
-        console.log("UID:", user?.uid);
-        console.log("Email:", user?.email);
+        console.log("4. Firebase currentUser obtained", auth.currentUser);
+        console.log("5. Firebase UID obtained", user.uid);
 
         setFirebaseUser(user);
 
@@ -459,18 +458,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           fallbackStatus = "PENDING";
         }
 
+        console.log("6. Firestore users/{uid} lookup started for path: users/" + user.uid);
         const userDocRef = doc(db, "users", user.uid);
 
         unsubscribeProfile = onSnapshot(
           userDocRef,
           (docSnap) => {
             let userData: any = null;
+            console.log("7. Firestore document exists/not exists:", docSnap.exists());
             if (docSnap.exists()) {
               userData = docSnap.data();
               console.log("=== FIRESTORE PROFILE ===");
-              console.log("User data:", userData);
-              console.log("Role:", userData?.role);
-              console.log("Status:", userData?.status);
+              console.log("8. Firestore user data:", userData);
+              console.log("9. role:", userData?.role);
+              console.log("10. status:", userData?.status);
+              console.log("11. onboardingCompleted:", userData?.onboardingCompleted);
 
               const parsedRole = (userData.role || fallbackRole).toLowerCase() as UserRole;
               const rawStatus = (userData.status || "ACTIVE").toUpperCase();
@@ -514,9 +516,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
               });
             } else {
               console.log("=== FIRESTORE PROFILE ===");
-              console.log("User data: (None found, auto-creating for UID)", user.uid);
-              console.log("Role:", fallbackRole);
-              console.log("Status:", fallbackStatus);
+              console.log("8. Firestore user data: (None found, auto-creating for UID)", user.uid);
+              console.log("9. role:", fallbackRole);
+              console.log("10. status:", fallbackStatus);
+              console.log("11. onboardingCompleted: true");
 
               const fallbackProfile: User = {
                 uid: user.uid,
@@ -587,22 +590,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         prompt: "select_account",
       });
 
-      // Pure popup authentication - correctly awaited
+      console.log("2. signInWithPopup started");
       const userCredential = await signInWithPopup(auth, provider);
+      console.log("3. Microsoft authentication completed", userCredential);
       const user = userCredential.user;
 
       console.log("=== AUTH STATE ===");
-      console.log("Firebase user:", user);
-      console.log("UID:", user?.uid);
-      console.log("Email:", user?.email);
+      console.log("4. Firebase currentUser obtained", auth.currentUser);
+      console.log("5. Firebase UID obtained", user.uid);
 
       setFirebaseUser(user);
 
       // Read Firestore: users/{user.uid} (Doc ID is user.uid)
+      console.log("6. Firestore users/{uid} lookup started for path: users/" + user.uid);
       const userDocRef = doc(db, "users", user.uid);
       let userData: any = null;
       try {
         const snap = await getDoc(userDocRef);
+        console.log("7. Firestore document exists/not exists:", snap.exists());
         if (snap.exists()) {
           userData = snap.data();
         }
@@ -611,9 +616,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       console.log("=== FIRESTORE PROFILE ===");
-      console.log("User data:", userData);
-      console.log("Role:", userData?.role);
-      console.log("Status:", userData?.status);
+      console.log("8. Firestore user data:", userData);
+      console.log("9. role:", userData?.role);
+      console.log("10. status:", userData?.status);
+      console.log("11. onboardingCompleted:", userData?.onboardingCompleted);
 
       const lowerEmail = (user.email || "").toLowerCase();
       let effectiveRole: UserRole = "student";
@@ -775,16 +781,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const signOut = useCallback(async () => {
     try {
-      console.error("LOGIN REDIRECT TRIGGERED", {
-        reason: "User initiated signOut",
-        uid: auth.currentUser?.uid,
-        email: auth.currentUser?.email,
-      });
-      console.error("WHY LOGIN:", {
-        uid: auth.currentUser?.uid,
-        email: auth.currentUser?.email,
+      console.error("LOGIN REDIRECT", {
+        currentPath: window.location.pathname,
+        firebaseUser: auth.currentUser?.uid || null,
+        email: auth.currentUser?.email || null,
         role: profile?.role || null,
-        status: status,
+        status: status || null,
+        reason: "User initiated signOut",
       });
       await firebaseSignOut(auth);
       setFirebaseUser(null);

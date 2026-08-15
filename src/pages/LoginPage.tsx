@@ -109,12 +109,14 @@ export const LoginPage: React.FC = () => {
   }
 
   const handleMicrosoftSignIn = async () => {
+    console.log("1. Microsoft login button clicked");
     clearAuthError();
     setSignInError(null);
     setSignUpSuccessNotice(null);
     try {
       const { user, role, status } = await signInWithMicrosoft();
       const destination = getPostLoginRoute(role, status);
+      console.log("12. dashboard route decision:", destination);
       toast.success("Welcome back!", {
         description: `Signed in as ${user.displayName || user.email} (${role.toUpperCase()})`,
       });

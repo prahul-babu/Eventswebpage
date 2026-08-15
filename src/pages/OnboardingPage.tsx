@@ -68,16 +68,13 @@ export const OnboardingPage: React.FC = () => {
 
   // If unauthenticated, redirect to login
   if (!isAuthenticated || !firebaseUser) {
-    console.error("LOGIN REDIRECT TRIGGERED", {
-      reason: "Unauthenticated access on /onboarding",
-      uid: auth.currentUser?.uid || null,
-      email: auth.currentUser?.email || null,
-    });
-    console.error("WHY LOGIN:", {
-      uid: auth.currentUser?.uid || null,
+    console.error("LOGIN REDIRECT", {
+      currentPath: window.location.pathname,
+      firebaseUser: auth.currentUser?.uid || null,
       email: auth.currentUser?.email || null,
       role: profile?.role || null,
-      status: status,
+      status: status || null,
+      reason: "Unauthenticated access on /onboarding",
     });
     return <Navigate to="/login" replace />;
   }
