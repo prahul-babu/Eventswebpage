@@ -55,10 +55,11 @@ export const RegistrationDialog: React.FC<RegistrationDialogProps> = ({
   onSuccess,
 }) => {
   const navigate = useNavigate();
-  const { firebaseUser, profile, role } = useAuth();
+  const { firebaseUser, profile, role, updateUserProfile } = useAuth();
   const createMutation = useCreateRegistration();
 
   const [teamMembersList, setTeamMembersList] = useState<TeamMember[]>([]);
+  const [enteredRollNumber, setEnteredRollNumber] = useState("");
   const isTeamEvent = (event.maxTeamSize || 1) > 1;
   const isPaid = Boolean(event.isPaid && event.price > 0);
 
@@ -72,7 +73,7 @@ export const RegistrationDialog: React.FC<RegistrationDialogProps> = ({
     resolver: zodResolver(createRegistrationSchema),
     defaultValues: {
       eventId: event.id,
-      contactPhone: profile?.phoneNumber || "",
+      contactPhone: profile?.phoneNumber || profile?.phone || "",
       teamName: "",
       teamMembers: [],
       answers: {},
@@ -106,6 +107,20 @@ export const RegistrationDialog: React.FC<RegistrationDialogProps> = ({
     }
 
     try {
+      // If user provided phone or rollNumber, persist to profile in background
+      const profileUpdates: Record<string, any> = {};
+      if (data.contactPhone && (!profile?.phoneNumber || !profile?.phone)) {
+        profileUpdates.phoneNumber = data.contactPhone;
+        profileUpdates.phone = data.contactPhone;
+      }
+      if (enteredRollNumber && !profile?.rollNumber) {
+        profileUpdates.rollNumber = enteredRollNumber.trim().toUpperCase();
+        profileUpdates.studentId = enteredRollNumber.trim().toUpperCase();
+      }
+      if (Object.keys(profileUpdates).length > 0 && updateUserProfile) {
+        updateUserProfile(profileUpdates).catch((err) => console.warn("[Registration] Profile sync notice:", err));
+      }
+
       const payload = {
         ...data,
         eventId: event.id,
@@ -128,8 +143,8 @@ export const RegistrationDialog: React.FC<RegistrationDialogProps> = ({
 
   const displayName = profile?.displayName || firebaseUser?.displayName || "Campus Scholar";
   const userEmail = profile?.email || firebaseUser?.email || "";
-  const department = profile?.department || "General Administration";
-  const rollNumber = profile?.rollNumber || "Not on file";
+  const department = profile?.department || "School of Technology";
+  const rollNumber = profile?.rollNumber || profile?.studentId;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -188,9 +203,19 @@ export const RegistrationDialog: React.FC<RegistrationDialogProps> = ({
 
                 <div className="space-y-0.5">
                   <span className="text-[11px] text-slate-500 flex items-center gap-1">
-                    <Hash className="w-3 h-3 text-slate-400" /> Roll / Staff ID
+                    <Hash className="w-3 h-3 text-slate-400" /> Student Roll Number
                   </span>
-                  <div className="font-mono font-semibold text-slate-900">{rollNumber}</div>
+                  {rollNumber ? (
+                    <div className="font-mono font-semibold text-slate-900">{rollNumber}</div>
+                  ) : (
+                    <Input
+                      value={enteredRollNumber}
+                      onChange={(e) => setEnteredRollNumber(e.target.value)}
+                      placeholder="e.g. 21BCE10234"
+                      className="h-7 text-xs font-mono bg-white"
+                      required
+                    />
+                  )}
                 </div>
               </div>
             </div>

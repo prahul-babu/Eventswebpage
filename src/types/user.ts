@@ -125,21 +125,43 @@ export interface User {
   role: UserRole;
   status: UserStatus;
   department: Department | string;
+  school?: string;
   
   // Student Specific Fields
   rollNumber?: string;
+  studentId?: string;
+  programme?: string;
   year?: AcademicYear | string;
+  yearOfStudy?: string;
+  semester?: string;
   section?: AcademicSection | string;
+  batch?: string;
+  personalEmail?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelation?: string;
+  dietaryPreference?: string;
+  skills?: string[];
 
   // Faculty / Staff Specific Fields
   employeeId?: string;
+  facultyId?: string;
   designation?: FacultyDesignation | string;
+  expertise?: string;
+  officeLocation?: string;
+
+  // Admin Specific Fields
+  adminUnit?: string;
+  adminId?: string;
 
   phoneNumber?: string;
   phone?: string;
   photoURL?: string;
   bio?: string;
+  address?: string;
+  ssoProvider?: string;
   onboardingCompleted: boolean;
+  isProfileComplete?: boolean;
 
   // Notification Preferences & FCM Push
   notificationPrefs?: NotificationPreferences;
@@ -165,19 +187,40 @@ export interface FirestoreUserDocument {
   role: UserRole;
   status: UserStatus;
   department: Department | string;
+  school?: string;
   
   rollNumber?: string;
+  studentId?: string;
+  programme?: string;
   year?: AcademicYear | string;
+  yearOfStudy?: string;
+  semester?: string;
   section?: AcademicSection | string;
+  batch?: string;
+  personalEmail?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelation?: string;
+  dietaryPreference?: string;
+  skills?: string[];
 
   employeeId?: string;
+  facultyId?: string;
   designation?: FacultyDesignation | string;
+  expertise?: string;
+  officeLocation?: string;
+
+  adminUnit?: string;
+  adminId?: string;
 
   phoneNumber?: string;
   phone?: string;
   photoURL?: string;
   bio?: string;
+  address?: string;
+  ssoProvider?: string;
   onboardingCompleted: boolean;
+  isProfileComplete?: boolean;
 
   notificationPrefs?: NotificationPreferences;
   fcmTokens?: string[];

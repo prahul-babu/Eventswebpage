@@ -32,6 +32,12 @@ export const AdminUserProfilePage: React.FC = () => {
   // Editable fields
   const [department, setDepartment] = useState("");
   const [designation, setDesignation] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [rollNumber, setRollNumber] = useState("");
+  const [employeeId, setEmployeeId] = useState("");
+  const [programme, setProgramme] = useState("");
+  const [year, setYear] = useState("");
+  const [section, setSection] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   // Sync initial values
@@ -39,6 +45,12 @@ export const AdminUserProfilePage: React.FC = () => {
     if (data?.user) {
       setDepartment(data.user.department || "");
       setDesignation(data.user.designation || "");
+      setPhoneNumber(data.user.phoneNumber || data.user.phone || "");
+      setRollNumber(data.user.rollNumber || (data.user as any).studentId || "");
+      setEmployeeId(data.user.employeeId || (data.user as any).facultyId || "");
+      setProgramme((data.user as any).programme || "");
+      setYear((data.user as any).year || "");
+      setSection((data.user as any).section || "");
     }
   }, [data?.user]);
 
@@ -49,9 +61,18 @@ export const AdminUserProfilePage: React.FC = () => {
       await updateDoc(doc(db, "users", uid), {
         department: department.trim(),
         designation: designation.trim(),
+        phoneNumber: phoneNumber.trim(),
+        phone: phoneNumber.trim(),
+        rollNumber: rollNumber.trim() ? rollNumber.trim().toUpperCase() : null,
+        studentId: rollNumber.trim() ? rollNumber.trim().toUpperCase() : null,
+        employeeId: employeeId.trim() ? employeeId.trim().toUpperCase() : null,
+        facultyId: employeeId.trim() ? employeeId.trim().toUpperCase() : null,
+        programme: programme.trim(),
+        year: year.trim(),
+        section: section.trim(),
         updatedAt: new Date(),
       });
-      toast.success("Profile Details Updated", { description: "Department and designation saved." });
+      toast.success("Profile Details Updated", { description: "User dossier changes saved to Firestore." });
     } catch (err: any) {
       toast.error("Update Failed", { description: err.message });
     } finally {
@@ -168,7 +189,7 @@ export const AdminUserProfilePage: React.FC = () => {
       {activeTab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="rounded-3xl border-slate-200 bg-white p-6 space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 border-b pb-2">Academic &amp; Departmental Data</h3>
+            <h3 className="text-sm font-bold text-slate-900 border-b pb-2">Institutional &amp; Departmental Data</h3>
 
             <div className="space-y-4 text-xs">
               <div className="space-y-1.5">
@@ -186,22 +207,64 @@ export const AdminUserProfilePage: React.FC = () => {
                 <Input
                   value={designation}
                   onChange={(e) => setDesignation(e.target.value)}
-                  placeholder="e.g. Associate Professor / Student Lead"
+                  placeholder="e.g. Associate Professor / Student Scholar"
                   className="h-10 text-xs"
                 />
               </div>
 
-              {user.rollNumber && (
-                <div className="space-y-1.5">
-                  <Label className="font-bold text-slate-700">Student Roll Number</Label>
-                  <Input value={user.rollNumber} readOnly className="h-10 text-xs bg-slate-50 font-mono" />
-                </div>
+              <div className="space-y-1.5">
+                <Label className="font-bold text-slate-700">Mobile Contact Number</Label>
+                <Input
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="e.g. 9876543210"
+                  className="h-10 text-xs"
+                />
+              </div>
+
+              {user.role === "student" && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label className="font-bold text-slate-700">Student Roll Number</Label>
+                    <Input
+                      value={rollNumber}
+                      onChange={(e) => setRollNumber(e.target.value)}
+                      placeholder="e.g. 21BCE10234"
+                      className="h-10 text-xs font-mono"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="font-bold text-slate-700">Academic Year</Label>
+                      <Input
+                        value={year}
+                        onChange={(e) => setYear(e.target.value)}
+                        placeholder="e.g. 3rd Year"
+                        className="h-10 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="font-bold text-slate-700">Section</Label>
+                      <Input
+                        value={section}
+                        onChange={(e) => setSection(e.target.value)}
+                        placeholder="e.g. Section A"
+                        className="h-10 text-xs"
+                      />
+                    </div>
+                  </div>
+                </>
               )}
 
-              {user.employeeId && (
+              {(user.role === "faculty" || user.role === "admin") && (
                 <div className="space-y-1.5">
                   <Label className="font-bold text-slate-700">Employee ID</Label>
-                  <Input value={user.employeeId} readOnly className="h-10 text-xs bg-slate-50 font-mono" />
+                  <Input
+                    value={employeeId}
+                    onChange={(e) => setEmployeeId(e.target.value)}
+                    placeholder="e.g. EMP-CSE-409"
+                    className="h-10 text-xs font-mono"
+                  />
                 </div>
               )}
 
@@ -213,7 +276,7 @@ export const AdminUserProfilePage: React.FC = () => {
                 className="rounded-xl text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold gap-1.5 h-9"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>{isSaving ? "Saving..." : "Save Departmental Details"}</span>
+                <span>{isSaving ? "Saving..." : "Save Dossier Details"}</span>
               </Button>
             </div>
           </Card>

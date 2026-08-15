@@ -86,7 +86,10 @@ export interface AuthContextValue {
   isPendingApproval: boolean;
   isAccountActive: boolean;
   isAccountBlocked: boolean;
+  isProfileComplete: boolean;
+  missingProfileFields: string[];
   authError: string | null;
+  updateUserProfile: (updates: Partial<User>) => Promise<void>;
   loginWithEmail: (
     email: string,
     pass: string,
@@ -230,6 +233,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       );
       const result = await setRoleFn(payload);
       return result.data;
+    },
+    []
+  );
+
+  const updateUserProfile = useCallback(
+    async (updates: Partial<User>): Promise<void> => {
+      const user = auth.currentUser;
+      if (!user) throw new Error("No authenticated user session");
+
+      const userDocRef = doc(db, "users", user.uid);
+      const cleanUpdates: Record<string, any> = {
+        ...updates,
+        updatedAt: new Date(),
+      };
+      delete cleanUpdates.uid;
+
+      await setDoc(userDocRef, cleanUpdates, { merge: true });
+
+      if (updates.displayName) {
+        try {
+          await updateProfile(user, { displayName: updates.displayName });
+        } catch (e) {
+          console.warn("[Auth] updateProfile error:", e);
+        }
+      }
+
+      setProfile((prev) => (prev ? { ...prev, ...cleanUpdates, updatedAt: new Date() } : null));
     },
     []
   );
@@ -582,6 +612,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
               ) as UserStatus;
 
               const resolvedProfile: User = {
+                ...userData,
                 uid: userData.uid || user.uid,
                 email: userData.email || user.email || "",
                 displayName:
@@ -592,9 +623,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 role: parsedRole,
                 status: parsedStatus,
                 department: userData.department || (parsedRole === "faculty" ? "Department of Computer Science & Engineering" : "School of Technology"),
-                rollNumber: userData.rollNumber,
-                employeeId: userData.employeeId,
+                school: userData.school || "School of Technology",
+                rollNumber: userData.rollNumber || userData.studentId,
+                studentId: userData.studentId || userData.rollNumber,
+                employeeId: userData.employeeId || userData.facultyId,
+                facultyId: userData.facultyId || userData.employeeId,
                 designation: userData.designation,
+                programme: userData.programme,
+                year: userData.year,
+                yearOfStudy: userData.yearOfStudy || userData.year,
+                semester: userData.semester,
+                section: userData.section,
+                batch: userData.batch,
+                personalEmail: userData.personalEmail,
+                phoneNumber: userData.phoneNumber || userData.phone,
+                phone: userData.phone || userData.phoneNumber,
+                emergencyContactName: userData.emergencyContactName,
+                emergencyContactPhone: userData.emergencyContactPhone,
+                emergencyContactRelation: userData.emergencyContactRelation,
+                dietaryPreference: userData.dietaryPreference,
+                skills: userData.skills,
+                expertise: userData.expertise,
+                officeLocation: userData.officeLocation,
+                adminUnit: userData.adminUnit,
+                ssoProvider: userData.ssoProvider || (user.providerData?.[0]?.providerId === "microsoft.com" ? "Microsoft Entra ID" : "Apollo SSO Provider"),
                 onboardingCompleted: true,
                 createdAt: userData.createdAt
                   ? userData.createdAt.toDate
@@ -915,6 +967,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     effectiveStatus === "SUSPENDED" || effectiveStatus === "REJECTED";
   const isOnboardingRequired = false;
 
+  const isProfileComplete = Boolean(
+    profile &&
+    profile.displayName &&
+    profile.displayName.trim().length > 1 &&
+    profile.email &&
+    profile.email.includes("@") &&
+    (effectiveRole === "student"
+      ? (profile.rollNumber || (profile as any).studentId) && (profile.phoneNumber || profile.phone) && profile.department
+      : effectiveRole === "faculty"
+      ? (profile.employeeId || profile.facultyId) && profile.department
+      : true)
+  );
+
+  const missingProfileFields = (() => {
+    if (!profile) return [];
+    const missing: string[] = [];
+    if (!profile.displayName || profile.displayName.trim().length <= 1) missing.push("Full Name");
+    if (!profile.email || !profile.email.includes("@")) missing.push("University Email");
+    if (effectiveRole === "student") {
+      if (!profile.rollNumber && !(profile as any).studentId) missing.push("Student Roll Number");
+      if (!profile.phoneNumber && !profile.phone) missing.push("Mobile Contact Number");
+      if (!profile.department || profile.department.trim().length === 0) missing.push("Department");
+    } else if (effectiveRole === "faculty") {
+      if (!profile.employeeId && !profile.facultyId) missing.push("Faculty / Employee ID");
+      if (!profile.department) missing.push("Department");
+    }
+    return missing;
+  })();
+
   // Resolving is true while initial auth is checking or while active user's Firestore profile is still loading
   const isAuthResolving = isLoading || (hasActiveUser && !profile && !cachedRole);
 
@@ -961,7 +1042,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     isPendingApproval,
     isAccountActive,
     isAccountBlocked,
+    isProfileComplete,
+    missingProfileFields,
     authError,
+    updateUserProfile,
     loginWithEmail,
     signUpWithEmail,
     signInWithMicrosoft,
