@@ -235,14 +235,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         }
         console.log("FIRESTORE USER DATA:", userData);
 
-        // 3. Read role & 4. Read status
-        let effectiveRole: UserRole = "student";
+        // 3. Read role & status
+        let effectiveRole: UserRole = selectedRole || "student";
         let effectiveStatus: UserStatus = "ACTIVE";
 
         if (userData) {
-          if (userData.role) {
+          if (userData.role === "admin" && selectedRole === "admin") {
+            effectiveRole = "admin";
+          } else if (selectedRole) {
+            effectiveRole = selectedRole;
+          } else if (userData.role) {
             effectiveRole = userData.role.toLowerCase() as UserRole;
           }
+
           if (userData.status) {
             const rawStatus = String(userData.status).toUpperCase();
             effectiveStatus = (
@@ -275,6 +280,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             userData?.department ||
             (effectiveRole === "admin"
               ? "Institutional Administration"
+              : effectiveRole === "faculty"
+              ? "Department of Computer Science & Engineering"
               : "School of Technology"),
           rollNumber: userData?.rollNumber,
           employeeId: userData?.employeeId,
@@ -291,12 +298,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setClaims({ role: effectiveRole, status: effectiveStatus });
         setIsLoading(false);
 
-        // Save to Firestore in background
-        if (!userData) {
-          setDoc(userDocRef, userProfile, { merge: true }).catch((err) => {
-            console.warn("[Auth] Profile background sync notice:", err);
-          });
-        }
+        // Save / update Firestore in background
+        setDoc(userDocRef, userProfile, { merge: true }).catch((err) => {
+          console.warn("[Auth] Profile background sync notice:", err);
+        });
 
         return { user, role: effectiveRole, status: effectiveStatus };
       } finally {
