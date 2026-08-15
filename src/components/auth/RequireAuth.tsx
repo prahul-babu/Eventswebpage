@@ -1,6 +1,6 @@
 import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, getPostLoginRoute } from "@/lib/auth-context";
 import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
 import type { UserRole } from "@/types";
 
@@ -10,7 +10,7 @@ interface RequireAuthProps {
 }
 
 export const RequireAuth: React.FC<RequireAuthProps> = ({ children, allowedRoles }) => {
-  const { isLoading, isAuthenticating, isAuthenticated, status, role } = useAuth();
+  const { isLoading, isAuthenticating, isAuthenticated, status, role, firebaseUser } = useAuth();
   const location = useLocation();
 
   // 1. Show full-screen loading screen while resolving auth state
@@ -18,20 +18,21 @@ export const RequireAuth: React.FC<RequireAuthProps> = ({ children, allowedRoles
     return <AuthLoadingScreen />;
   }
 
-  // 2. Redirect unauthenticated users to /login
-  if (!isAuthenticated) {
+  // 2. Redirect unauthenticated users to /login ONLY after auth loading is complete
+  if (!isAuthenticated || !firebaseUser) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // 3. Redirect PENDING users to /pending approval gate
-  if (status === "PENDING") {
+  // 3. Exact Role / Status Rules Enforcement:
+  // - faculty + PENDING → Faculty Pending Approval (/pending)
+  if (role === "faculty" && status === "PENDING") {
     if (location.pathname !== "/pending") {
       return <Navigate to="/pending" replace />;
     }
     return <>{children}</>;
   }
 
-  // 4. Redirect SUSPENDED or REJECTED users to /account-blocked
+  // - Blocked / Suspended accounts
   if (status === "SUSPENDED" || status === "REJECTED") {
     if (location.pathname !== "/account-blocked") {
       return <Navigate to="/account-blocked" replace />;
@@ -39,21 +40,24 @@ export const RequireAuth: React.FC<RequireAuthProps> = ({ children, allowedRoles
     return <>{children}</>;
   }
 
-  // 5. Role Authorization: Check if user role matches allowedRoles
+  // If a pending user was approved (status is ACTIVE) but is still on /pending, route them to dashboard
+  if (status === "ACTIVE" && location.pathname === "/pending") {
+    return <Navigate to={getPostLoginRoute(role, status)} replace />;
+  }
+
+  // 4. Role Authorization: Check if user role matches allowedRoles
   if (allowedRoles && allowedRoles.length > 0) {
     const effectiveUserRole = role || "student";
     const hasRole = allowedRoles.includes(effectiveUserRole);
     if (!hasRole) {
-      if (effectiveUserRole === "admin") {
-        return <Navigate to="/admin" replace />;
-      } else if (effectiveUserRole === "faculty") {
-        return <Navigate to="/faculty" replace />;
-      } else {
-        return <Navigate to="/" replace />;
+      const destination = getPostLoginRoute(effectiveUserRole, status);
+      if (location.pathname !== destination) {
+        return <Navigate to={destination} replace />;
       }
     }
   }
 
-  // 6. Access granted
+  // 5. Access granted
   return <>{children}</>;
 };
+export default RequireAuth;

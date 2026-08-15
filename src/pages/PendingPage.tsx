@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { Link, useNavigate, Navigate } from "react-router-dom";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, getPostLoginRoute } from "@/lib/auth-context";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import {
 import { toast } from "sonner";
 
 export const PendingPage: React.FC = () => {
-  const { firebaseUser, isAuthenticated, profile, status, refreshClaims, signOut } = useAuth();
+  const { firebaseUser, isAuthenticated, profile, role, status, refreshClaims, signOut } = useAuth();
   const navigate = useNavigate();
 
   // If unauthenticated, redirect to login
@@ -35,10 +35,10 @@ export const PendingPage: React.FC = () => {
         description: "Your campus account has been activated by the administrator.",
       });
       refreshClaims().then(() => {
-        navigate("/");
+        navigate(getPostLoginRoute(profile?.role || role, "ACTIVE"));
       });
     }
-  }, [status, profile, refreshClaims, navigate]);
+  }, [status, profile, role, refreshClaims, navigate]);
 
   const isRejected = status === "REJECTED" || (profile && profile.status === "REJECTED");
   const isApproved = status === "ACTIVE" || (profile && profile.status === "ACTIVE");

@@ -37,6 +37,40 @@ export interface AuthClaims {
   status?: UserStatus;
 }
 
+/**
+ * Exact Role / Status Routing Rules:
+ * student + ACTIVE → Student Dashboard (/)
+ * faculty + PENDING → Faculty Pending Approval (/pending)
+ * faculty + ACTIVE → Faculty Dashboard (/faculty)
+ * admin + ACTIVE → Admin Dashboard (/admin)
+ */
+export function getPostLoginRoute(
+  role?: UserRole | null,
+  status?: UserStatus | null
+): string {
+  const effRole: UserRole = (role || "student").toLowerCase() as UserRole;
+  const effStatus: UserStatus = (status || "ACTIVE").toUpperCase() as UserStatus;
+
+  if (effStatus === "SUSPENDED" || effStatus === "REJECTED") {
+    return "/account-blocked";
+  }
+
+  if (effRole === "faculty" && effStatus === "PENDING") {
+    return "/pending";
+  }
+
+  if (effRole === "faculty" && effStatus === "ACTIVE") {
+    return "/faculty";
+  }
+
+  if (effRole === "admin" && effStatus === "ACTIVE") {
+    return "/admin";
+  }
+
+  // student + ACTIVE (or default)
+  return "/";
+}
+
 export interface AuthContextValue {
   firebaseUser: FirebaseUser | null;
   claims: AuthClaims | null;
@@ -51,13 +85,19 @@ export interface AuthContextValue {
   isAccountActive: boolean;
   isAccountBlocked: boolean;
   authError: string | null;
-  loginWithEmail: (email: string, pass: string, selectedRole: UserRole) => Promise<{ user: FirebaseUser; role: UserRole }>;
+  loginWithEmail: (
+    email: string,
+    pass: string,
+    selectedRole: UserRole
+  ) => Promise<{ user: FirebaseUser; role: UserRole; status: UserStatus }>;
   signInWithMicrosoft: () => Promise<void>;
   signInAsDevUser: (role: UserRole) => Promise<void>;
   signOut: () => Promise<void>;
   refreshClaims: () => Promise<void>;
   resolveUserState: () => Promise<ResolveUserResponse>;
-  submitAccessRequest: (payload: RequestAccessPayload) => Promise<{ success: boolean; status: string }>;
+  submitAccessRequest: (
+    payload: RequestAccessPayload
+  ) => Promise<{ success: boolean; status: string }>;
   assignUserRole: (payload: SetUserRolePayload) => Promise<{ success: boolean }>;
   clearAuthError: () => void;
 }
@@ -66,11 +106,17 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const isMobileDevice = (): boolean => {
   if (typeof window === "undefined" || !navigator) return false;
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  );
 };
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(() => auth.currentUser);
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(
+    () => auth.currentUser
+  );
 
   const [claims, setClaims] = useState<AuthClaims | null>(null);
   const [profile, setProfile] = useState<User | null>(null);
@@ -84,15 +130,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAuthError(null);
   }, []);
 
-  const validateAndEnforceDomainGuard = useCallback(async (user: FirebaseUser): Promise<boolean> => {
-    if (!user || !user.email) return true;
-    return true;
-  }, []);
-
   const refreshClaims = useCallback(async () => {
     if (!auth.currentUser) return;
     try {
-      const tokenResult: IdTokenResult = await auth.currentUser.getIdTokenResult(true);
+      const tokenResult: IdTokenResult =
+        await auth.currentUser.getIdTokenResult(true);
       const customClaims = tokenResult.claims as AuthClaims;
       setClaims({
         role: (customClaims.role as UserRole) || undefined,
@@ -105,7 +147,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const resolveUserState = useCallback(async (): Promise<ResolveUserResponse> => {
     try {
-      const resolveFn = httpsCallable<void, ResolveUserResponse>(functions, "resolveUser");
+      const resolveFn = httpsCallable<void, ResolveUserResponse>(
+        functions,
+        "resolveUser"
+      );
       const result = await resolveFn();
       await refreshClaims();
       return result.data;
@@ -122,11 +167,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [profile, refreshClaims]);
 
   const submitAccessRequest = useCallback(
-    async (payload: RequestAccessPayload): Promise<{ success: boolean; status: string }> => {
-      const requestFn = httpsCallable<RequestAccessPayload, { success: boolean; status: string }>(
-        functions,
-        "requestAccess"
-      );
+    async (
+      payload: RequestAccessPayload
+    ): Promise<{ success: boolean; status: string }> => {
+      const requestFn = httpsCallable<
+        RequestAccessPayload,
+        { success: boolean; status: string }
+      >(functions, "requestAccess");
       const result = await requestFn(payload);
       await refreshClaims();
       return result.data;
@@ -146,73 +193,107 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     []
   );
 
-  // Direct login with email and password
+  /**
+   * DIRECT EMAIL / PASSWORD SIGN IN:
+   * 1. Authenticate with Firebase Auth
+   * 2. Get auth.currentUser.uid
+   * 3. Read users/{auth.currentUser.uid}
+   * 4. Read role & status
+   * 5. Set user profile & state
+   */
   const loginWithEmail = useCallback(
-    async (emailStr: string, passwordStr: string, selectedRole: UserRole): Promise<{ user: FirebaseUser; role: UserRole }> => {
+    async (
+      emailStr: string,
+      passwordStr: string,
+      selectedRole: UserRole
+    ): Promise<{ user: FirebaseUser; role: UserRole; status: UserStatus }> => {
       setIsAuthenticating(true);
       setAuthError(null);
 
       try {
         const trimmedEmail = emailStr.toLowerCase().trim();
-        const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, passwordStr);
+        const userCredential = await signInWithEmailAndPassword(
+          auth,
+          trimmedEmail,
+          passwordStr
+        );
         const user = userCredential.user;
 
         setFirebaseUser(user);
 
-        // Compute effective role
-        const isAdmin =
-          trimmedEmail.includes("admin") ||
-          trimmedEmail === "panukurahulbabu@gmail.com" ||
-          trimmedEmail === "122411510302@apollouniversity.edu.in" ||
-          trimmedEmail === "122411520313@apollouniversity.edu.in" ||
-          selectedRole === "admin";
-
-        let effectiveRole: UserRole = selectedRole;
-        if (isAdmin) {
-          effectiveRole = "admin";
-        } else if (selectedRole === "faculty") {
-          effectiveRole = "faculty";
-        } else {
-          effectiveRole = "student";
-        }
-
+        // 1. Get auth.currentUser.uid & 2. Read users/{uid}
         const userDocRef = doc(db, "users", user.uid);
         let existingData: any = {};
         try {
           const snap = await getDoc(userDocRef);
           if (snap.exists()) {
             existingData = snap.data();
-            if (existingData.role && !isAdmin) {
-              effectiveRole = existingData.role as UserRole;
-            }
           }
         } catch (e) {
-          console.warn("[Auth] Firestore read warning:", e);
+          console.warn("[Auth] Firestore read notice:", e);
+        }
+
+        // 3. Read role & 4. Read status
+        let effectiveRole: UserRole = "student";
+        let effectiveStatus: UserStatus = "ACTIVE";
+
+        if (existingData.role) {
+          effectiveRole = existingData.role.toLowerCase() as UserRole;
+        } else {
+          effectiveRole = selectedRole || "student";
+        }
+
+        if (existingData.status) {
+          const rawStatus = String(existingData.status).toUpperCase();
+          effectiveStatus = (
+            rawStatus === "PENDING"
+              ? "PENDING"
+              : rawStatus === "SUSPENDED"
+              ? "SUSPENDED"
+              : rawStatus === "REJECTED"
+              ? "REJECTED"
+              : "ACTIVE"
+          ) as UserStatus;
+        } else {
+          effectiveStatus = (
+            effectiveRole === "faculty" ? "PENDING" : "ACTIVE"
+          ) as UserStatus;
         }
 
         const userProfile: User = {
           uid: user.uid,
           email: user.email || trimmedEmail,
-          displayName: existingData.displayName || user.displayName || trimmedEmail.split("@")[0],
+          displayName:
+            existingData.displayName ||
+            user.displayName ||
+            trimmedEmail.split("@")[0],
           role: effectiveRole,
-          status: "ACTIVE",
-          department: existingData.department || (effectiveRole === "admin" ? "Institutional Administration" : "School of Technology"),
+          status: effectiveStatus,
+          department:
+            existingData.department ||
+            (effectiveRole === "admin"
+              ? "Institutional Administration"
+              : "School of Technology"),
           rollNumber: existingData.rollNumber,
           employeeId: existingData.employeeId,
           onboardingCompleted: true,
-          createdAt: existingData.createdAt ? (existingData.createdAt.toDate ? existingData.createdAt.toDate() : new Date(existingData.createdAt)) : new Date(),
+          createdAt: existingData.createdAt
+            ? existingData.createdAt.toDate
+              ? existingData.createdAt.toDate()
+              : new Date(existingData.createdAt)
+            : new Date(),
           updatedAt: new Date(),
         };
 
         setProfile(userProfile);
-        setClaims({ role: effectiveRole, status: "ACTIVE" });
+        setClaims({ role: effectiveRole, status: effectiveStatus });
 
         // Save to Firestore in background
         setDoc(userDocRef, userProfile, { merge: true }).catch((err) => {
           console.warn("[Auth] Profile background sync notice:", err);
         });
 
-        return { user, role: effectiveRole };
+        return { user, role: effectiveRole, status: effectiveStatus };
       } finally {
         setIsAuthenticating(false);
       }
@@ -229,7 +310,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const result = await getRedirectResult(auth);
         if (result && result.user && isMounted) {
           toast.success("Welcome back!", {
-            description: `Signed in as ${result.user.displayName || result.user.email}`,
+            description: `Signed in as ${
+              result.user.displayName || result.user.email
+            }`,
           });
         }
       } catch (err: unknown) {
@@ -247,7 +330,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // Auth State Listener
+  /**
+   * AUTH STATE LISTENER (Runs on page load & after OAuth / Sign In):
+   * 1. Get auth.currentUser.uid
+   * 2. Read users/{auth.currentUser.uid}
+   * 3. Read role
+   * 4. Read status
+   * 5. Set state (never kicks user out while reading or if doc is being created)
+   */
   useEffect(() => {
     let unsubscribeProfile: Unsubscribe | null = null;
 
@@ -256,6 +346,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setFirebaseUser(user);
 
         const lowerEmail = (user.email || "").toLowerCase();
+        // Fallback role only if doc is missing:
         let fallbackRole: UserRole = "student";
         if (
           lowerEmail.includes("admin") ||
@@ -278,39 +369,68 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           (docSnap) => {
             if (docSnap.exists()) {
               const data = docSnap.data();
+              const parsedRole = (data.role || fallbackRole).toLowerCase() as UserRole;
               const rawStatus = (data.status || "ACTIVE").toUpperCase();
+              const parsedStatus = (
+                rawStatus === "PENDING"
+                  ? "PENDING"
+                  : rawStatus === "SUSPENDED"
+                  ? "SUSPENDED"
+                  : rawStatus === "REJECTED"
+                  ? "REJECTED"
+                  : "ACTIVE"
+              ) as UserStatus;
+
               setProfile({
                 uid: data.uid || user.uid,
                 email: data.email || user.email || "",
-                displayName: data.displayName || data.name || user.displayName || "Campus Member",
-                role: (data.role || fallbackRole).toLowerCase() as UserRole,
-                status: (rawStatus === "ACTIVE" ? "ACTIVE" : rawStatus === "PENDING" ? "PENDING" : rawStatus === "REJECTED" ? "REJECTED" : "ACTIVE") as UserStatus,
+                displayName:
+                  data.displayName ||
+                  data.name ||
+                  user.displayName ||
+                  "Campus Member",
+                role: parsedRole,
+                status: parsedStatus,
                 department: data.department || "School of Technology",
                 rollNumber: data.rollNumber,
                 employeeId: data.employeeId,
                 designation: data.designation,
                 onboardingCompleted: true,
-                createdAt: data.createdAt ? (data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt)) : new Date(),
+                createdAt: data.createdAt
+                  ? data.createdAt.toDate
+                    ? data.createdAt.toDate()
+                    : new Date(data.createdAt)
+                  : new Date(),
                 updatedAt: new Date(),
               });
               setClaims({
-                role: (data.role || fallbackRole) as UserRole,
-                status: "ACTIVE",
+                role: parsedRole,
+                status: parsedStatus,
               });
             } else {
+              // Document does not exist yet: create default profile without kicking user out
+              const fallbackStatus: UserStatus =
+                fallbackRole === "faculty" ? "PENDING" : "ACTIVE";
+
               const fallbackProfile: User = {
                 uid: user.uid,
                 email: user.email || "",
-                displayName: user.displayName || user.email?.split("@")[0] || "Campus Member",
+                displayName:
+                  user.displayName ||
+                  user.email?.split("@")[0] ||
+                  "Campus Member",
                 role: fallbackRole,
-                status: "ACTIVE",
-                department: fallbackRole === "admin" ? "Institutional Administration" : "School of Technology",
+                status: fallbackStatus,
+                department:
+                  fallbackRole === "admin"
+                    ? "Institutional Administration"
+                    : "School of Technology",
                 onboardingCompleted: true,
                 createdAt: new Date(),
                 updatedAt: new Date(),
               };
               setProfile(fallbackProfile);
-              setClaims({ role: fallbackRole, status: "ACTIVE" });
+              setClaims({ role: fallbackRole, status: fallbackStatus });
 
               setDoc(userDocRef, fallbackProfile, { merge: true }).catch(() => {});
             }
@@ -340,6 +460,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  // Microsoft OAuth Login (Single tenant configuration preserved)
   const signInWithMicrosoft = useCallback(async () => {
     setAuthError(null);
     setIsAuthenticating(true);
@@ -357,10 +478,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        const userCredential = await signInWithPopup(auth, provider);
-        if (userCredential && userCredential.user) {
-          await validateAndEnforceDomainGuard(userCredential.user);
-        }
+        await signInWithPopup(auth, provider);
       } catch (popupError: any) {
         if (
           popupError.code === "auth/popup-blocked" ||
@@ -382,7 +500,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsAuthenticating(false);
     }
-  }, [validateAndEnforceDomainGuard]);
+  }, []);
 
   const signInAsDevUser = useCallback(async (devRole: UserRole) => {
     setAuthError(null);
@@ -438,7 +556,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       emailVerified: true,
       isAnonymous: false,
       photoURL: null,
-      getIdToken: async () => auth.currentUser ? auth.currentUser.getIdToken() : "mock-dev-token",
+      getIdToken: async () =>
+        auth.currentUser ? auth.currentUser.getIdToken() : "mock-dev-token",
       getIdTokenResult: async () => ({
         claims: { role: devRole, status: "ACTIVE" },
       }),
@@ -473,13 +592,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const effectiveRole = claims?.role || profile?.role || (firebaseUser ? "student" : null);
-  const effectiveStatus = claims?.status || profile?.status || (firebaseUser ? "ACTIVE" : null);
+  const effectiveRole =
+    claims?.role || profile?.role || (firebaseUser ? "student" : null);
+  const effectiveStatus =
+    claims?.status || profile?.status || (firebaseUser ? "ACTIVE" : null);
 
   const isAuthenticated = Boolean(firebaseUser);
   const isAccountActive = effectiveStatus === "ACTIVE";
   const isPendingApproval = effectiveStatus === "PENDING";
-  const isAccountBlocked = effectiveStatus === "SUSPENDED" || effectiveStatus === "REJECTED";
+  const isAccountBlocked =
+    effectiveStatus === "SUSPENDED" || effectiveStatus === "REJECTED";
   const isOnboardingRequired = false;
 
   const value: AuthContextValue = {

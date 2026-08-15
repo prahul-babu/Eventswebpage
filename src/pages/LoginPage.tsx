@@ -7,7 +7,7 @@ import {
 } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, getPostLoginRoute } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -59,10 +59,12 @@ export const LoginPage: React.FC = () => {
   const {
     loginWithEmail,
     signInWithMicrosoft,
+    isLoading,
     isAuthenticating,
     isAuthenticated,
     firebaseUser,
     role: currentRole,
+    status: currentStatus,
     authError,
     clearAuthError,
   } = useAuth();
@@ -96,11 +98,9 @@ export const LoginPage: React.FC = () => {
   const [signUpError, setSignUpError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // If already authenticated, redirect to destination portal
-  if (isAuthenticated && firebaseUser) {
-    if (currentRole === "admin") return <Navigate to="/admin" replace />;
-    if (currentRole === "faculty") return <Navigate to="/faculty" replace />;
-    return <Navigate to="/" replace />;
+  // If already authenticated and not loading, redirect to destination portal
+  if (!isLoading && isAuthenticated && firebaseUser) {
+    return <Navigate to={getPostLoginRoute(currentRole, currentStatus)} replace />;
   }
 
   const handleMicrosoftSignIn = async () => {
@@ -135,19 +135,14 @@ export const LoginPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const { role } = await loginWithEmail(trimmedEmail, trimmedPassword, selectedRole);
+      const { role, status } = await loginWithEmail(trimmedEmail, trimmedPassword, selectedRole);
 
       toast.success("Welcome back!", {
         description: `Signed in successfully as ${role.toUpperCase()}`,
       });
 
-      if (role === "admin") {
-        navigate("/admin");
-      } else if (role === "faculty") {
-        navigate("/faculty");
-      } else {
-        navigate("/");
-      }
+      const destination = getPostLoginRoute(role, status);
+      navigate(destination);
     } catch (firebaseErr: any) {
       console.warn("[Auth] Sign In error:", firebaseErr.code, firebaseErr.message);
 
