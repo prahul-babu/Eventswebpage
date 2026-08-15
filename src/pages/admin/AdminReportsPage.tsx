@@ -39,17 +39,22 @@ export const AdminReportsPage: React.FC = () => {
       if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
       if (
         academicYearFilter !== "ALL" &&
-        r.institutionalMapping?.academicYear !== academicYearFilter
+        r.institutionalMapping?.academicYear &&
+        r.institutionalMapping.academicYear !== academicYearFilter
       )
         return false;
-      if (naacFilter !== "ALL" && r.institutionalMapping?.naacCriterion !== naacFilter)
+      if (
+        naacFilter !== "ALL" &&
+        r.institutionalMapping?.naacCriterion &&
+        r.institutionalMapping.naacCriterion !== naacFilter
+      )
         return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchTitle = r.eventTitle.toLowerCase().includes(q);
-        const matchOrganiser = r.organiserName.toLowerCase().includes(q);
-        const matchDept = r.department.toLowerCase().includes(q);
+        const matchTitle = (r.eventTitle || "").toLowerCase().includes(q);
+        const matchOrganiser = (r.organiserName || "").toLowerCase().includes(q);
+        const matchDept = (r.department || "").toLowerCase().includes(q);
         return matchTitle || matchOrganiser || matchDept;
       }
       return true;
@@ -273,11 +278,11 @@ export const AdminReportsPage: React.FC = () => {
                       </td>
 
                       <td className="p-4 max-w-[200px] truncate text-indigo-900 font-medium">
-                        {report.institutionalMapping.naacCriterion}
+                        {report.institutionalMapping?.naacCriterion || "Academic & Co-curricular"}
                       </td>
 
                       <td className="p-4 whitespace-nowrap font-bold text-slate-900">
-                        {report.participation.actualAttendance} / {report.participation.registeredCount}
+                        {report.participation?.actualAttendance ?? 0} / {report.participation?.registeredCount ?? 0}
                       </td>
 
                       <td className="p-4 whitespace-nowrap">{getStatusBadge(report.status)}</td>

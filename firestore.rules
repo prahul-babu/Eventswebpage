@@ -2,81 +2,8 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    match /users/{uid} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /events/{eventId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /registrations/{regId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /payments/{paymentId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /settings/{docId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /system_config/{docId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /systemConfig/{docId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /processed_webhooks/{eventId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /allowlist/{document=**} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /notifications/{notifId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /notifications/{uid}/items/{itemId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /mail/{mailId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /failedEmails/{failId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /auditLogs/{logId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /audit_logs/{logId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /reports/{eventId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /event_reports/{reportId} {
-      allow read, write: if isSignedIn();
-    }
-
     match /{document=**} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
   }
 }
