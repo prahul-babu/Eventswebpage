@@ -306,109 +306,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     []
   );
 
-  // Redirect handler for OAuth (Startup code)
+  // Startup: Check for redirect result from Microsoft OAuth
   useEffect(() => {
     let isMounted = true;
+    console.log("[AUTH-3] Application startup - checking redirect result");
 
-    async function checkRedirect() {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result && result.user && isMounted) {
-          const user = result.user;
-          console.log("AUTH STATE (REDIRECT RESULT):", {
-            uid: user?.uid,
-            email: user?.email,
-            provider: user?.providerData?.map((p) => p.providerId),
-          });
-
-          setFirebaseUser(user);
-
-          console.log("FIRESTORE USER PATH:", `users/${user.uid}`);
-          const userDocRef = doc(db, "users", user.uid);
-          let userData: any = null;
-          try {
-            const snap = await getDoc(userDocRef);
-            if (snap.exists()) {
-              userData = snap.data();
-            }
-          } catch (e) {}
-          console.log("FIRESTORE USER DATA:", userData);
-
-          const lowerEmail = (user.email || "").toLowerCase();
-          let effectiveRole: UserRole = "student";
-          let effectiveStatus: UserStatus = "ACTIVE";
-
-          if (userData) {
-            if (userData.role) effectiveRole = userData.role.toLowerCase() as UserRole;
-            if (userData.status) {
-              const rawStatus = String(userData.status).toUpperCase();
-              effectiveStatus = (
-                rawStatus === "PENDING"
-                  ? "PENDING"
-                  : rawStatus === "SUSPENDED"
-                  ? "SUSPENDED"
-                  : rawStatus === "REJECTED"
-                  ? "REJECTED"
-                  : "ACTIVE"
-              ) as UserStatus;
-            }
-          } else {
-            if (
-              lowerEmail.includes("admin") ||
-              lowerEmail === "panukurahulbabu@gmail.com" ||
-              lowerEmail === "122411510302@apollouniversity.edu.in" ||
-              lowerEmail === "122411520313@apollouniversity.edu.in"
-            ) {
-              effectiveRole = "admin";
-            } else if (
-              lowerEmail.includes("faculty") ||
-              lowerEmail.includes("dr.") ||
-              lowerEmail.includes("prof")
-            ) {
-              effectiveRole = "faculty";
-              effectiveStatus = "PENDING";
-            }
-          }
-
-          const userProfile: User = {
-            uid: user.uid,
-            email: user.email || lowerEmail,
-            displayName:
-              userData?.displayName ||
-              user.displayName ||
-              lowerEmail.split("@")[0],
-            role: effectiveRole,
-            status: effectiveStatus,
-            department: userData?.department || "School of Technology",
-            rollNumber: userData?.rollNumber,
-            employeeId: userData?.employeeId,
-            onboardingCompleted: true,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
-
-          setProfile(userProfile);
-          setClaims({ role: effectiveRole, status: effectiveStatus });
-          setIsLoading(false);
-
-          if (!userData) {
-            setDoc(userDocRef, userProfile, { merge: true }).catch(() => {});
-          }
-
-          const destination = getPostLoginRoute(effectiveRole, effectiveStatus);
-          if (typeof window !== "undefined" && window.location.pathname === "/login") {
-            window.location.replace(destination);
-          }
+    getRedirectResult(auth)
+      .then((result) => {
+        if (!isMounted) return;
+        if (result && result.user) {
+          console.log("[AUTH-4] OAuth completed", result);
+          console.log("[AUTH-5] Firebase user received", result.user);
+          console.log("[AUTH-6] UID:", result.user.uid);
+          setFirebaseUser(result.user);
+        } else {
+          console.log("[AUTH-3] No redirect result pending on startup");
         }
-      } catch (err: unknown) {
-        if (isMounted) {
-          const error = err as { code?: string; message?: string };
-          setAuthError(error.message || "Authentication failed");
-        }
-      }
-    }
-
-    checkRedirect();
+      })
+      .catch((error: any) => {
+        if (!isMounted) return;
+        console.error("[AUTH-ERROR] Authentication error in getRedirectResult:", {
+          code: error.code,
+          message: error.message,
+          customData: error.customData,
+          email: error.email,
+          credential: error.credential,
+        });
+        setAuthError(error.message || "Microsoft authentication failed");
+        setIsAuthenticating(false);
+        toast.error("Microsoft Sign-In Failed", { description: error.message });
+      });
 
     return () => {
       isMounted = false;
@@ -427,13 +354,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     let unsubscribeProfile: Unsubscribe | null = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      console.log("[AUTH 4] onAuthStateChanged result:", user ? user.uid : "null");
-      console.log("[AUTH 3] Firebase auth.currentUser UID:", auth.currentUser?.uid || null);
-
       if (user) {
         setFirebaseUser(user);
-        console.log("[MS-5] Firebase UID =", user.uid);
-        console.log("[MS-6] Loading Firestore users/{uid}: users/" + user.uid);
+        console.log("[AUTH-5] Firebase user received", user);
+        console.log("[AUTH-6] UID:", user.uid);
+        console.log("[AUTH-7] Firestore profile loading: users/" + user.uid);
 
         const lowerEmail = (user.email || "").toLowerCase();
         let fallbackRole: UserRole = "student";
@@ -463,7 +388,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             let userData: any = null;
             if (docSnap.exists()) {
               userData = docSnap.data();
-              console.log("[MS-7] Firestore profile loaded =", userData);
+              console.log("[AUTH-8] Firestore profile received", userData);
 
               const parsedRole = (userData.role ? String(userData.role).toLowerCase() : fallbackRole) as UserRole;
               const rawStatus = (userData.status ? String(userData.status).toUpperCase() : "ACTIVE");
@@ -477,9 +402,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                   : "ACTIVE"
               ) as UserStatus;
 
-              console.log("[MS-8] Role =", parsedRole);
+              console.log("[AUTH-9] Role:", parsedRole, "| Status:", parsedStatus);
               const destination = getPostLoginRoute(parsedRole, parsedStatus);
-              console.log("[MS-9] Routing to =", destination);
+              console.log("[AUTH-10] Route decision:", destination);
 
               const resolvedProfile: User = {
                 uid: userData.uid || user.uid,
@@ -510,10 +435,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 status: parsedStatus,
               });
             } else {
-              console.log("[MS-7] Firestore profile loaded = (None found, auto-creating)");
-              console.log("[MS-8] Role =", fallbackRole);
+              console.log("[AUTH-8] Firestore profile received: (None found, auto-creating)");
+              console.log("[AUTH-9] Role:", fallbackRole, "| Status:", fallbackStatus);
               const destination = getPostLoginRoute(fallbackRole, fallbackStatus);
-              console.log("[MS-9] Routing to =", destination);
+              console.log("[AUTH-10] Route decision:", destination);
 
               const fallbackProfile: User = {
                 uid: user.uid,
@@ -541,13 +466,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             setIsAuthenticating(false);
           },
           (err) => {
-            console.warn("[Auth] onSnapshot error:", err);
+            console.error("[AUTH-ERROR] onSnapshot profile read error:", err);
             setIsLoading(false);
             setIsAuthenticating(false);
           }
         );
       } else {
-        console.log("[PROFILE 8] Firestore profile result: (null - user signed out)");
+        console.log("[AUTH-5] Firebase user received: null");
         setFirebaseUser(null);
         setClaims(null);
         setProfile(null);
@@ -572,7 +497,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const signInWithMicrosoft = useCallback(async (): Promise<void> => {
     setAuthError(null);
     setIsAuthenticating(true);
-    console.log("[MS-1] Microsoft button clicked");
+    console.log("[AUTH-1] Button clicked");
 
     try {
       const provider = new OAuthProvider("microsoft.com");
@@ -580,12 +505,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         tenant: "e4ac90d7-9035-4bc0-893a-fe0103850136",
         prompt: "select_account",
       });
+      console.log("[AUTH-2] Provider created", provider);
 
-      console.log("[MS-2] Calling signInWithRedirect");
+      console.log("[AUTH-3] Authentication method started: signInWithRedirect");
       await signInWithRedirect(auth, provider);
     } catch (err: any) {
       setIsAuthenticating(false);
-      console.error("[MS-ERROR] signInWithRedirect failed:", {
+      console.error("[AUTH-ERROR] Authentication error in signInWithRedirect:", {
         code: err.code,
         message: err.message,
         customData: err.customData,

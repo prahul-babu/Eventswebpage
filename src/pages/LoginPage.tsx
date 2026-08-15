@@ -106,19 +106,20 @@ export const LoginPage: React.FC = () => {
   // If already authenticated and profile is resolved with a valid role, redirect to destination portal
   if (isAuthenticated && currentRole && currentStatus) {
     const autoDestination = getPostLoginRoute(currentRole, currentStatus);
-    console.log("[MS-9] Routing to =", autoDestination);
+    console.log("[AUTH-10] Route decision:", autoDestination);
+    console.log("[AUTH-11] Navigation destination:", autoDestination);
     return <Navigate to={autoDestination} replace />;
   }
 
   const handleMicrosoftSignIn = async () => {
-    console.log("[MS-1] Microsoft button clicked");
+    console.log("[AUTH-1] Button clicked");
     clearAuthError();
     setSignInError(null);
     setSignUpSuccessNotice(null);
     try {
       await signInWithMicrosoft();
     } catch (err: any) {
-      console.error("[MS-ERROR] Microsoft redirect initiation failed:", err);
+      console.error("[AUTH-ERROR] Microsoft redirect initiation error:", err);
     }
   };
 
