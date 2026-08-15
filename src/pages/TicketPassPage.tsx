@@ -204,7 +204,7 @@ export const TicketPassPage: React.FC = () => {
           <div className="space-y-1.5 pt-4 text-xs text-indigo-200">
             <div className="flex items-center gap-2">
               <Clock className="w-3.5 h-3.5 text-amber-400" />
-              <span>{format(event.startAt, "EEEE, MMMM d, yyyy &bull; h:mm a")}</span>
+              <span>{event.startAt ? `${format(new Date(event.startAt), "EEEE, MMMM d, yyyy")} • ${format(new Date(event.startAt), "h:mm a")}` : "Date TBA"}</span>
             </div>
             <div className="flex items-center gap-2">
               <MapPin className="w-3.5 h-3.5 text-amber-400" />

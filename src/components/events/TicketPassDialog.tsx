@@ -104,7 +104,7 @@ export const TicketPassDialog: React.FC<TicketPassDialogProps> = ({
             <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
               <span className="text-slate-500">Date & Time:</span>
               <span className="font-medium text-slate-800">
-                {format(event.startAt, "MMM d, yyyy &bull; h:mm a")}
+                {event.startAt ? `${format(new Date(event.startAt), "MMM d, yyyy")} • ${format(new Date(event.startAt), "h:mm a")}` : "Date TBA"}
               </span>
             </div>
             <div className="flex justify-between items-center">

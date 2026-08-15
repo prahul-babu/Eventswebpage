@@ -96,7 +96,7 @@ export function generateEventReceiptPDF(data: ReceiptData) {
 
   doc.text(`Event Title: ${event.title}`, margin + 5, eventY + 14);
   doc.text(
-    `Date & Time: ${format(event.startAt, "EEE, MMM d, yyyy &bull; h:mm a")}`,
+    `Date & Time: ${event.startAt ? `${format(new Date(event.startAt), "EEE, MMM d, yyyy")} • ${format(new Date(event.startAt), "h:mm a")}` : "Date TBA"}`,
     margin + 5,
     eventY + 20
   );

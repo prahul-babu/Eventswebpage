@@ -115,7 +115,7 @@ export const MyRegistrationsPage: React.FC = () => {
               <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
                 <span className="flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-indigo-600" />
-                  {format(item.event.startAt, "MMM d, yyyy &bull; h:mm a")}
+                  {item.event.startAt ? `${format(new Date(item.event.startAt), "MMM d, yyyy")} • ${format(new Date(item.event.startAt), "h:mm a")}` : "Date TBA"}
                 </span>
                 <span className="flex items-center gap-1 truncate max-w-[200px]">
                   <MapPin className="w-3.5 h-3.5 text-indigo-600" />

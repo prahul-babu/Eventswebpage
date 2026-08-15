@@ -53,7 +53,10 @@ export const EventDetailPage: React.FC = () => {
 
   const [registrationModalOpen, setRegistrationModalOpen] = useState(false);
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
+  const [createdRegistration, setCreatedRegistration] = useState<any>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
+  const activeRegistration = userRegistration || createdRegistration;
 
   // 1. Determine Button State Machine
   const buttonState: { state: RegistrationButtonState; text: string; subtext?: string; disabled: boolean } =
@@ -62,11 +65,11 @@ export const EventDetailPage: React.FC = () => {
         return { state: "CLOSED", text: "Unavailable", disabled: true };
       }
 
-      if (userRegistration && userRegistration.status !== "CANCELLED") {
+      if (activeRegistration && activeRegistration.status !== "CANCELLED") {
         return {
           state: "ALREADY_REGISTERED",
           text: "View Your Entry Ticket",
-          subtext: `Status: ${userRegistration.status} (${userRegistration.ticketCode})`,
+          subtext: `Status: ${activeRegistration.status} (${activeRegistration.ticketCode})`,
           disabled: false,
         };
       }
@@ -75,25 +78,25 @@ export const EventDetailPage: React.FC = () => {
         return { state: "CANCELLED", text: "Event Cancelled", subtext: "This event will not take place", disabled: true };
       }
 
-      if (event.status === "COMPLETED" || isPast(event.endAt)) {
+      const now = new Date();
+      if (event.status === "COMPLETED" || (event.endAt && isPast(new Date(event.endAt)))) {
         return { state: "COMPLETED", text: "Event Ended", subtext: "This event has already concluded", disabled: true };
       }
 
-      const now = new Date();
-      if (event.registrationStartAt && now < event.registrationStartAt) {
+      if (event.registrationStartAt && now < new Date(event.registrationStartAt)) {
         return {
           state: "NOT_YET_OPEN",
           text: "Registration Opening Soon",
-          subtext: `Opens on ${format(event.registrationStartAt, "MMM d, yyyy")}`,
+          subtext: `Opens on ${format(new Date(event.registrationStartAt), "MMM d, yyyy")}`,
           disabled: true,
         };
       }
 
-      if (now > event.registrationDeadline) {
+      if (event.registrationDeadline && now > new Date(event.registrationDeadline)) {
         return {
           state: "CLOSED",
           text: "Registration Closed",
-          subtext: `Deadline passed on ${format(event.registrationDeadline, "MMM d, h:mm a")}`,
+          subtext: `Deadline passed on ${format(new Date(event.registrationDeadline), "MMM d, h:mm a")}`,
           disabled: true,
         };
       }
@@ -121,11 +124,11 @@ export const EventDetailPage: React.FC = () => {
 
       return {
         state: "REGISTER_NOW",
-        text: !event.isPaid || event.price === 0 ? "Register for Free" : `Register & Pay &bull; ₹${event.price}`,
+        text: !event.isPaid || event.price === 0 ? "Register for Free" : `Register & Pay • ₹${event.price}`,
         subtext: "Instant digital pass & QR code confirmation",
         disabled: false,
       };
-    }, [event, userRegistration]);
+    }, [event, activeRegistration]);
 
   const handleActionClick = () => {
     if (!isAuthenticated) {
@@ -291,10 +294,10 @@ export const EventDetailPage: React.FC = () => {
                   <span>Date & Range</span>
                 </div>
                 <div className="font-semibold text-xs text-slate-900">
-                  {format(event.startAt, "MMM d, yyyy")}
+                  {event.startAt ? format(new Date(event.startAt), "MMM d, yyyy") : "Date TBA"}
                 </div>
                 <div className="text-[11px] text-slate-500">
-                  {format(event.startAt, "h:mm a")} - {format(event.endAt, "h:mm a")}
+                  {event.startAt ? format(new Date(event.startAt), "h:mm a") : ""} {event.endAt ? `- ${format(new Date(event.endAt), "h:mm a")}` : ""}
                 </div>
               </div>
 
@@ -571,13 +574,33 @@ export const EventDetailPage: React.FC = () => {
         event={event}
         isOpen={registrationModalOpen}
         onClose={() => setRegistrationModalOpen(false)}
-        onSuccess={() => setTicketModalOpen(true)}
+        onSuccess={(createdResult) => {
+          if (createdResult) {
+            setCreatedRegistration({
+              id: createdResult.registrationId,
+              eventId: event.id,
+              userId: firebaseUser?.uid || "",
+              userDisplayName: firebaseUser?.displayName || "Student Participant",
+              userEmail: firebaseUser?.email || "",
+              status: createdResult.status || "CONFIRMED",
+              ticketCode: createdResult.ticketCode,
+              qrCodePayload: JSON.stringify({ ticketCode: createdResult.ticketCode, eventId: event.id }),
+              isPaid: true,
+              amountPaid: createdResult.amount || 0,
+              checkedIn: false,
+              registeredAt: new Date(),
+              updatedAt: new Date(),
+            });
+          }
+          setRegistrationModalOpen(false);
+          setTicketModalOpen(true);
+        }}
       />
 
       {/* Ticket Pass QR Dialog */}
-      {userRegistration && (
+      {activeRegistration && (
         <TicketPassDialog
-          registration={userRegistration}
+          registration={activeRegistration}
           event={event}
           isOpen={ticketModalOpen}
           onClose={() => setTicketModalOpen(false)}

@@ -45,7 +45,7 @@ interface RegistrationDialogProps {
   event: Event;
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (createdResult?: any) => void;
 }
 
 export const RegistrationDialog: React.FC<RegistrationDialogProps> = ({
@@ -113,7 +113,7 @@ export const RegistrationDialog: React.FC<RegistrationDialogProps> = ({
       if (result.requiresPayment) {
         navigate(`/checkout/${result.registrationId}`);
       } else if (onSuccess) {
-        onSuccess();
+        onSuccess(result);
       }
     } catch {
       // Error handled by mutation toast

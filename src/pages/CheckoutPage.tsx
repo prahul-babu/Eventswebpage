@@ -216,7 +216,7 @@ export const CheckoutPage: React.FC = () => {
               <div className="space-y-2 pt-2 border-t border-slate-100 text-xs text-slate-600">
                 <div className="flex items-center gap-2">
                   <Calendar className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                  <span>{format(event.startAt, "EEEE, MMMM d, yyyy &bull; h:mm a")}</span>
+                  <span>{event.startAt ? `${format(new Date(event.startAt), "EEEE, MMMM d, yyyy")} • ${format(new Date(event.startAt), "h:mm a")}` : "Date TBA"}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <MapPin className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
