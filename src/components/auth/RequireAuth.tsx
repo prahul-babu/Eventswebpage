@@ -3,7 +3,6 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
 import type { UserRole } from "@/types";
-import { toast } from "sonner";
 
 interface RequireAuthProps {
   children: React.ReactNode;
@@ -42,12 +41,16 @@ export const RequireAuth: React.FC<RequireAuthProps> = ({ children, allowedRoles
 
   // 5. Role Authorization: Check if user role matches allowedRoles
   if (allowedRoles && allowedRoles.length > 0) {
-    const hasRole = role && allowedRoles.includes(role);
+    const effectiveUserRole = role || "student";
+    const hasRole = allowedRoles.includes(effectiveUserRole);
     if (!hasRole) {
-      toast.error("Access Denied", {
-        description: "You do not have access to that page.",
-      });
-      return <Navigate to="/" replace />;
+      if (effectiveUserRole === "admin") {
+        return <Navigate to="/admin" replace />;
+      } else if (effectiveUserRole === "faculty") {
+        return <Navigate to="/faculty" replace />;
+      } else {
+        return <Navigate to="/" replace />;
+      }
     }
   }
 

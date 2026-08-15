@@ -140,32 +140,41 @@ export const LoginPage: React.FC = () => {
       const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
       const user = userCredential.user;
 
-      // 2. Fetch User Profile from Firestore
+      // 2. Fetch User Profile from Firestore & set active role
       const userDocRef = doc(db, "users", user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
       let effectiveRole: UserRole = selectedRole;
 
-      if (userDocSnap.exists()) {
+      const isAdminEmail =
+        trimmedEmail.includes("admin") ||
+        trimmedEmail === "panukurahulbabu@gmail.com" ||
+        trimmedEmail === "122411510302@apollouniversity.edu.in" ||
+        trimmedEmail === "122411520313@apollouniversity.edu.in";
+
+      if (selectedRole === "admin" || isAdminEmail) {
+        effectiveRole = "admin";
+      } else if (userDocSnap.exists()) {
         const userData = userDocSnap.data();
         effectiveRole = (userData.role || selectedRole).toLowerCase() as UserRole;
       } else {
-        // If user document doesn't exist yet, create it with the selected role
-        await setDoc(
-          userDocRef,
-          {
-            uid: user.uid,
-            email: trimmedEmail,
-            displayName: user.displayName || trimmedEmail.split("@")[0],
-            role: selectedRole,
-            status: "ACTIVE",
-            onboardingCompleted: true,
-            updatedAt: new Date(),
-          },
-          { merge: true }
-        );
         effectiveRole = selectedRole;
       }
+
+      await setDoc(
+        userDocRef,
+        {
+          uid: user.uid,
+          email: trimmedEmail,
+          displayName: user.displayName || trimmedEmail.split("@")[0],
+          role: effectiveRole,
+          status: "ACTIVE",
+          department: effectiveRole === "admin" ? "Institutional Administration" : "School of Technology",
+          onboardingCompleted: true,
+          updatedAt: new Date(),
+        },
+        { merge: true }
+      );
 
       toast.success("Welcome back!", {
         description: `Signed in as ${user.displayName || trimmedEmail} (${effectiveRole.toUpperCase()})`,
