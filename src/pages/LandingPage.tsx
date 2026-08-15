@@ -46,12 +46,13 @@ export const LandingPage: React.FC = () => {
   const todayFormatted = format(new Date(), "EEEE, MMMM d, yyyy");
 
   // 2. Data Queries
+  const currentUid = profile?.uid || firebaseUser?.uid;
   const { events: ongoingEvents } = useOngoingEvents();
   const { data: upcomingEvents, isLoading: isUpcomingLoading } = useUpcomingEvents(6);
   const { data: nextBooking, isLoading: isNextBookingLoading } = useNextStudentRegistration(
-    firebaseUser?.uid
+    currentUid
   );
-  const { data: stats } = useStudentStats(firebaseUser?.uid);
+  const { data: stats } = useStudentStats(currentUid);
 
   return (
     <div className="space-y-8 sm:space-y-12 py-6 sm:py-8">

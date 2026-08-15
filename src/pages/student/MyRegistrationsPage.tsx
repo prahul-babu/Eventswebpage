@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { format } from "date-fns";
 import {
   Ticket,
   Calendar,
@@ -34,9 +33,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+import { safeFormatDate, safeToDate } from "@/lib/utils";
+
 export const MyRegistrationsPage: React.FC = () => {
-  const { firebaseUser } = useAuth();
-  const { data, isLoading } = useStudentRegistrations(firebaseUser?.uid);
+  const { firebaseUser, profile } = useAuth();
+  const currentUid = firebaseUser?.uid || profile?.uid;
+  const currentEmail = firebaseUser?.email || profile?.email;
+  const { data, isLoading } = useStudentRegistrations(currentUid, currentEmail);
   const cancelMutation = useCancelRegistration();
 
   const [selectedPass, setSelectedPass] = useState<StudentRegistrationItem | null>(null);
@@ -73,7 +76,7 @@ export const MyRegistrationsPage: React.FC = () => {
 
   const renderRegistrationRow = (item: StudentRegistrationItem) => {
     const isCancelled = item.registration.status === "CANCELLED";
-    const canCancel = !isCancelled && item.event.startAt > new Date();
+    const canCancel = !isCancelled && safeToDate(item.event.startAt).getTime() > new Date().getTime();
 
     return (
       <Card
@@ -115,11 +118,11 @@ export const MyRegistrationsPage: React.FC = () => {
               <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
                 <span className="flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-indigo-600" />
-                  {item.event.startAt ? `${format(new Date(item.event.startAt), "MMM d, yyyy")} • ${format(new Date(item.event.startAt), "h:mm a")}` : "Date TBA"}
+                  {safeFormatDate(item.event.startAt, "MMM d, yyyy • h:mm a", "Date TBA")}
                 </span>
                 <span className="flex items-center gap-1 truncate max-w-[200px]">
                   <MapPin className="w-3.5 h-3.5 text-indigo-600" />
-                  {item.event.venueLocation}
+                  {item.event.venueLocation || "Campus Venue"}
                 </span>
               </div>
             </div>

@@ -47,9 +47,12 @@ export const EventDetailPage: React.FC = () => {
   const { firebaseUser, isAuthenticated, role, profile } = useAuth();
 
   const { data: event, isLoading: isEventLoading, isError } = useEventDetail(eventId);
+  const currentUid = firebaseUser?.uid || profile?.uid;
+  const currentEmail = firebaseUser?.email || profile?.email;
   const { data: userRegistration } = useEventUserRegistration(
     eventId,
-    firebaseUser?.uid
+    currentUid,
+    currentEmail
   );
 
   const [registrationModalOpen, setRegistrationModalOpen] = useState(false);

@@ -1,15 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  collection,
   getDocs,
   query,
   where,
-  orderBy,
   doc,
   getDoc,
   setDoc,
 } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
-import { getRegistrationsCollection, getEventsCollection } from "@/lib/converters";
+import { getEventsCollection } from "@/lib/converters";
+import { safeToDate } from "@/lib/utils";
 import type {
   Registration,
   RegistrationStatus,
@@ -47,28 +48,56 @@ export function useEventDetail(eventId?: string) {
 /**
  * 2. Fetch User Registration for Specific Event
  */
-export function useUserEventRegistration(eventId?: string, userId?: string | null) {
+export function useUserEventRegistration(eventId?: string, userId?: string | null, userEmail?: string | null) {
   return useQuery<Registration | null>({
-    queryKey: ["registration", "event", eventId, userId],
-    enabled: Boolean(eventId && userId),
+    queryKey: ["registration", "event", eventId, userId, userEmail],
+    enabled: Boolean(eventId && (userId || userEmail)),
     queryFn: async () => {
-      if (!eventId || !userId) return null;
+      if (!eventId) return null;
+      const activeUid = userId || auth.currentUser?.uid;
+      const activeEmail = userEmail || auth.currentUser?.email;
 
-      const regsRef = getRegistrationsCollection(db);
-      const q = query(
-        regsRef,
-        where("eventId", "==", eventId),
-        where("userId", "==", userId)
-      );
+      const regsRef = collection(db, "registrations");
+      const matchedRegs: Registration[] = [];
 
-      const snap = await getDocs(q);
-      if (snap.empty) return null;
+      // 1. Check by eventId & userId
+      if (activeUid) {
+        try {
+          const qUid = query(
+            regsRef,
+            where("eventId", "==", eventId),
+            where("userId", "==", activeUid)
+          );
+          const snapUid = await getDocs(qUid);
+          snapUid.docs.forEach((d) => {
+            matchedRegs.push({ id: d.id, ...(d.data() as any) } as Registration);
+          });
+        } catch (err) {
+          console.warn("[useUserEventRegistration] UID query notice:", err);
+        }
+      }
 
-      const activeReg = snap.docs
-        .map((d) => d.data())
-        .find((r) => r.status !== "CANCELLED");
+      // 2. Fallback check by eventId & userEmail
+      if (matchedRegs.length === 0 && activeEmail) {
+        try {
+          const qEmail = query(
+            regsRef,
+            where("eventId", "==", eventId),
+            where("userEmail", "==", activeEmail.toLowerCase().trim())
+          );
+          const snapEmail = await getDocs(qEmail);
+          snapEmail.docs.forEach((d) => {
+            matchedRegs.push({ id: d.id, ...(d.data() as any) } as Registration);
+          });
+        } catch (err) {
+          console.warn("[useUserEventRegistration] Email query notice:", err);
+        }
+      }
 
-      return activeReg || snap.docs[0].data();
+      if (matchedRegs.length === 0) return null;
+
+      const activeReg = matchedRegs.find((r) => r.status !== "CANCELLED");
+      return activeReg || matchedRegs[0];
     },
     staleTime: 1000 * 30, // 30 seconds
   });
@@ -79,48 +108,110 @@ export const useEventUserRegistration = useUserEventRegistration;
 /**
  * 3. Fetch All Student Registrations Hook (Partitioned into upcoming vs past)
  */
-export function useStudentRegistrations(userId?: string) {
+export function useStudentRegistrations(userId?: string, userEmail?: string) {
   return useQuery<{
     upcoming: StudentRegistrationItem[];
     past: StudentRegistrationItem[];
     all: StudentRegistrationItem[];
   }>({
-    queryKey: ["student", "registrations", userId],
+    queryKey: ["student", "registrations", userId, userEmail],
     queryFn: async () => {
-      if (!userId) return { upcoming: [], past: [], all: [] };
+      const activeUid = userId || auth.currentUser?.uid;
+      const activeEmail = userEmail || auth.currentUser?.email;
 
-      const regsRef = getRegistrationsCollection(db);
-      const q = query(
-        regsRef,
-        where("userId", "==", userId),
-        orderBy("registeredAt", "desc")
-      );
+      if (!activeUid && !activeEmail) return { upcoming: [], past: [], all: [] };
 
-      const regSnap = await getDocs(q);
-      const registrations = regSnap.docs.map((d) => d.data());
+      const regsRef = collection(db, "registrations");
+      const regDocsMap = new Map<string, Registration>();
 
-      const items: StudentRegistrationItem[] = [];
-      const eventsRef = getEventsCollection(db);
-
-      for (const reg of registrations) {
-        const eventDocRef = doc(eventsRef, reg.eventId);
-        const eventSnap = await getDoc(eventDocRef);
-        if (eventSnap.exists()) {
-          items.push({ registration: reg, event: eventSnap.data() });
+      // 1. Primary lookup by authenticated UID
+      if (activeUid) {
+        try {
+          const qUid = query(regsRef, where("userId", "==", activeUid));
+          const snapUid = await getDocs(qUid);
+          snapUid.docs.forEach((d) => {
+            regDocsMap.set(d.id, { id: d.id, ...(d.data() as any) } as Registration);
+          });
+        } catch (err) {
+          console.warn("[useStudentRegistrations] UID query notice:", err);
         }
       }
 
-      const now = new Date();
-      const upcoming = items.filter(
-        (i) => i.registration.status !== "CANCELLED" && i.event.endAt >= now
-      );
-      const past = items.filter(
-        (i) => i.registration.status === "CANCELLED" || i.event.endAt < now
-      );
+      // 2. Fallback lookup by email if available
+      if (activeEmail) {
+        try {
+          const qEmail = query(regsRef, where("userEmail", "==", activeEmail.toLowerCase().trim()));
+          const snapEmail = await getDocs(qEmail);
+          snapEmail.docs.forEach((d) => {
+            if (!regDocsMap.has(d.id)) {
+              regDocsMap.set(d.id, { id: d.id, ...(d.data() as any) } as Registration);
+            }
+          });
+        } catch (err) {
+          console.warn("[useStudentRegistrations] Email query notice:", err);
+        }
+      }
+
+      const rawRegistrations = Array.from(regDocsMap.values());
+
+      // In-memory sorting (avoids composite index requirements)
+      rawRegistrations.sort((a, b) => {
+        const timeA = safeToDate(a.registeredAt || (a as any).createdAt).getTime();
+        const timeB = safeToDate(b.registeredAt || (b as any).createdAt).getTime();
+        return timeB - timeA;
+      });
+
+      const items: StudentRegistrationItem[] = [];
+      const eventsRef = collection(db, "events");
+
+      for (const reg of rawRegistrations) {
+        if (!reg.eventId) continue;
+        try {
+          const eventDocRef = doc(eventsRef, reg.eventId);
+          const eventSnap = await getDoc(eventDocRef);
+          if (eventSnap.exists()) {
+            items.push({ registration: reg, event: { id: eventSnap.id, ...(eventSnap.data() as any) } as Event });
+          } else {
+            // Handle missing event gracefully
+            items.push({
+              registration: reg,
+              event: {
+                id: reg.eventId,
+                title: (reg as any).eventTitle || "Campus Event",
+                startAt: safeToDate(reg.registeredAt || (reg as any).createdAt),
+                endAt: safeToDate(reg.registeredAt || (reg as any).createdAt),
+                venueLocation: "Campus Venue",
+                category: "Technical",
+                status: "PUBLISHED",
+                visibility: "PUBLIC",
+                price: reg.amountPaid || 0,
+                isPaid: Boolean(reg.amountPaid && reg.amountPaid > 0),
+                capacity: 100,
+                registeredCount: 1,
+              } as unknown as Event,
+            });
+          }
+        } catch (err) {
+          console.warn("[useStudentRegistrations] Event lookup error:", err);
+        }
+      }
+
+      const nowTime = new Date().getTime();
+      const upcoming = items.filter((i) => {
+        if (i.registration.status === "CANCELLED") return false;
+        const eventEnd = safeToDate(i.event.endAt || i.event.startAt).getTime();
+        return eventEnd >= nowTime;
+      });
+
+      const past = items.filter((i) => {
+        if (i.registration.status === "CANCELLED") return true;
+        const eventEnd = safeToDate(i.event.endAt || i.event.startAt).getTime();
+        return eventEnd < nowTime;
+      });
 
       return { upcoming, past, all: items };
     },
-    staleTime: 1000 * 60, // 1 minute
+    staleTime: 1000 * 30, // 30 seconds
   });
 }
 

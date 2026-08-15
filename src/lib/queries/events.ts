@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getEventsCollection, getRegistrationsCollection, getEventDoc } from "@/lib/converters";
+import { safeToDate } from "@/lib/utils";
 import type { Event, Registration, EventCategory, EventVenueType } from "@/types";
 
 export interface EventFilters {
@@ -204,9 +205,9 @@ export function usePublishedEvents(filters: EventFilters) {
 }
 
 /**
- * 4. Soonest Next Registration Hook for Current Student
+ * 4. Upcoming User Registrations Hook (Used on student dashboard to show next event pass)
  */
-export function useNextStudentRegistration(userId?: string | null) {
+export function useUpcomingRegistrations(userId?: string | null) {
   return useQuery<{ registration: Registration; event: Event } | null>({
     queryKey: ["student", "next-registration", userId],
     enabled: Boolean(userId),
@@ -234,7 +235,8 @@ export function useNextStudentRegistration(userId?: string | null) {
         const eventSnap = await getDocs(eventDocRef);
         if (!eventSnap.empty) {
           const eventData = eventSnap.docs[0].data();
-          if (eventData.startAt.getTime() >= Date.now() - 1000 * 60 * 60 * 2) {
+          const eventStartTime = safeToDate(eventData.startAt).getTime();
+          if (eventStartTime >= Date.now() - 1000 * 60 * 60 * 2) {
             upcomingRegs.push({ registration: reg, event: eventData });
           }
         }
@@ -242,12 +244,14 @@ export function useNextStudentRegistration(userId?: string | null) {
 
       if (upcomingRegs.length === 0) return null;
 
-      upcomingRegs.sort((a, b) => a.event.startAt.getTime() - b.event.startAt.getTime());
+      upcomingRegs.sort((a, b) => safeToDate(a.event.startAt).getTime() - safeToDate(b.event.startAt).getTime());
       return upcomingRegs[0];
     },
     staleTime: 1000 * 60 * 3,
   });
 }
+
+export const useNextStudentRegistration = useUpcomingRegistrations;
 
 /**
  * 5. Student Registration & Attendance Stats Hook
