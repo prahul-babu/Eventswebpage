@@ -224,13 +224,15 @@ export const EventReportBuilderPage: React.FC = () => {
   // Submit Handler
   const handleConfirmSubmit = async () => {
     if (!eventId) return;
-    await handleSaveDraft(true);
     try {
-      await submitReportMutation.mutateAsync({ eventId });
+      await submitReportMutation.mutateAsync({
+        eventId,
+        reportData: reportState || undefined,
+      });
       setSubmitDialogOpen(false);
       navigate("/faculty/reports");
-    } catch {
-      // Error handled by mutation
+    } catch (err: any) {
+      console.error("[handleConfirmSubmit] submission error:", err);
     }
   };
 

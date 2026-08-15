@@ -202,23 +202,34 @@ export function useSaveReportDraft() {
 export function useSubmitEventReport() {
   const queryClient = useQueryClient();
 
-  return useMutation<{ success: boolean; eventId: string; status: string }, Error, { eventId: string }>({
+  return useMutation<
+    { success: boolean; eventId: string; status: string },
+    Error,
+    { eventId: string; reportData?: Partial<EventReport> }
+  >({
     mutationFn: async (payload) => {
       const now = new Date();
       const reportDocRef = doc(db, "event_reports", payload.eventId);
-      
-      // Update report status to SUBMITTED
-      await setDoc(
-        reportDocRef,
-        {
+
+      let updatePayload: Record<string, any> = {
+        status: "SUBMITTED",
+        submittedAt: now,
+        updatedAt: now,
+      };
+
+      if (payload.reportData) {
+        const cleaned = cleanForFirestore(payload.reportData);
+        updatePayload = {
+          ...cleaned,
           status: "SUBMITTED",
           submittedAt: now,
           updatedAt: now,
-        },
-        { merge: true }
-      );
+        };
+      }
 
-      // Update event reportStatus
+      await setDoc(reportDocRef, updatePayload, { merge: true });
+
+      // Update event reportStatus directly
       const eventDocRef = doc(db, "events", payload.eventId);
       await setDoc(
         eventDocRef,
@@ -227,7 +238,9 @@ export function useSubmitEventReport() {
           updatedAt: now,
         },
         { merge: true }
-      ).catch(() => {});
+      ).catch((err) => {
+        console.warn("[useSubmitEventReport] event update notice:", err);
+      });
 
       return {
         success: true,
