@@ -14,6 +14,7 @@ import { auth, db, functions } from "@/lib/firebase";
 import { getEventsCollection, getRegistrationsCollection } from "@/lib/converters";
 import type { Event, Registration, CreateEventPayload } from "@/types";
 import { toast } from "sonner";
+import { logAuditEvent } from "@/lib/audit";
 
 export interface FacultyDashboardMetrics {
   totalEvents: number;
@@ -39,36 +40,36 @@ function cleanFirestorePayload(raw: Record<string, any>): Record<string, any> {
 }
 
 /**
- * 1. Fetch All Events Organized by Faculty
+ * 1. Fetch All Events Organized by Faculty (Strictly isolated by Faculty UID)
  */
 export function useFacultyEvents(facultyUid?: string | null, facultyEmail?: string | null) {
   return useQuery<Event[]>({
     queryKey: ["faculty", "events", facultyUid, facultyEmail],
     queryFn: async () => {
+      const activeUid = (facultyUid || auth.currentUser?.uid || "").trim();
+      const activeEmail = (facultyEmail || auth.currentUser?.email || "").toLowerCase().trim();
+
+      if (!activeUid && !activeEmail) return [];
+
       const eventsRef = getEventsCollection(db);
       const snap = await getDocs(eventsRef);
       const allEvents = snap.docs.map((d) => d.data());
 
-      const uid = (facultyUid || "").toLowerCase().trim();
-      const email = (facultyEmail || "").toLowerCase().trim();
-
       const matched = allEvents.filter((e) => {
-        const eUid = (e.organiserId || "").toLowerCase().trim();
-        const eEmail = (e.organiserEmail || "").toLowerCase().trim();
-        if (uid && eUid === uid) return true;
-        if (email && eEmail === email) return true;
+        const cBy = (e.createdBy || (e as any).organiserId || "").trim();
+        const cEmail = (e.createdByEmail || (e as any).organiserEmail || "").toLowerCase().trim();
+        if (activeUid && cBy === activeUid) return true;
+        if (activeEmail && cEmail === activeEmail) return true;
         return false;
       });
 
-      const eventsToReturn = matched.length > 0 ? matched : allEvents;
-
-      return eventsToReturn.sort((a, b) => {
+      return matched.sort((a, b) => {
         const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return timeB - timeA;
       });
     },
-    staleTime: 1000 * 60,
+    staleTime: 1000 * 30,
   });
 }
 
@@ -79,22 +80,35 @@ export function useFacultyDashboardMetrics(facultyUid?: string | null, facultyEm
   return useQuery<FacultyDashboardMetrics>({
     queryKey: ["faculty", "dashboard-metrics", facultyUid, facultyEmail],
     queryFn: async () => {
+      const activeUid = (facultyUid || auth.currentUser?.uid || "").trim();
+      const activeEmail = (facultyEmail || auth.currentUser?.email || "").toLowerCase().trim();
+
+      if (!activeUid && !activeEmail) {
+        return {
+          totalEvents: 0,
+          pendingApprovalCount: 0,
+          publishedCount: 0,
+          totalRegistrations: 0,
+          totalRevenue: 0,
+          needsAttention: {
+            rejectedEvents: [],
+            completedAwaitingReport: [],
+            closingSoonEvents: [],
+          },
+        };
+      }
+
       const eventsRef = getEventsCollection(db);
       const snap = await getDocs(eventsRef);
       const allEvents = snap.docs.map((d) => d.data());
 
-      const uid = (facultyUid || "").toLowerCase().trim();
-      const email = (facultyEmail || "").toLowerCase().trim();
-
-      const matched = allEvents.filter((e) => {
-        const eUid = (e.organiserId || "").toLowerCase().trim();
-        const eEmail = (e.organiserEmail || "").toLowerCase().trim();
-        if (uid && eUid === uid) return true;
-        if (email && eEmail === email) return true;
+      const events = allEvents.filter((e) => {
+        const cBy = (e.createdBy || (e as any).organiserId || "").trim();
+        const cEmail = (e.createdByEmail || (e as any).organiserEmail || "").toLowerCase().trim();
+        if (activeUid && cBy === activeUid) return true;
+        if (activeEmail && cEmail === activeEmail) return true;
         return false;
       });
-
-      const events = matched.length > 0 ? matched : allEvents;
 
       const now = new Date();
       const in48Hours = new Date(now.getTime() + 48 * 60 * 60 * 1000);
@@ -152,14 +166,14 @@ export function useFacultyDashboardMetrics(facultyUid?: string | null, facultyEm
         },
       };
     },
-    staleTime: 1000 * 60,
+    staleTime: 1000 * 30,
   });
 }
 
 /**
- * 3. Save / Autosave Event Draft Mutation
+ * 3. Create Draft Event Mutation
  */
-export function useSaveEventDraft() {
+export function useCreateEvent() {
   const queryClient = useQueryClient();
 
   return useMutation<
@@ -202,6 +216,9 @@ export function useSaveEventDraft() {
         eligibility: data.eligibility || "",
         prerequisites: data.prerequisites || "",
         customQuestions: data.customQuestions || [],
+        createdBy: organiser.uid,
+        createdByEmail: organiser.email,
+        createdByName: organiser.name,
         organiserId: organiser.uid,
         organiserName: organiser.name,
         organiserEmail: organiser.email,
@@ -216,6 +233,18 @@ export function useSaveEventDraft() {
 
       const payload = cleanFirestorePayload(rawPayload);
       await setDoc(eventDocRef, payload, { merge: true });
+
+      logAuditEvent({
+        action: isNew ? "FACULTY_CREATED_EVENT" : "FACULTY_UPDATED_EVENT",
+        actorUid: organiser.uid,
+        actorName: organiser.name,
+        actorEmail: organiser.email,
+        actorRole: "FACULTY",
+        targetType: "EVENT",
+        targetId: targetId,
+        details: { title: data.title || "Untitled Draft Event", status: "DRAFT" },
+      });
+
       return { eventId: targetId, isNew };
     },
     onSuccess: (result) => {
@@ -224,6 +253,8 @@ export function useSaveEventDraft() {
     },
   });
 }
+
+export const useSaveEventDraft = useCreateEvent;
 
 /**
  * 4. Submit Event for Admin Approval Mutation
@@ -243,10 +274,7 @@ export function useSubmitEventForApproval() {
         } catch {}
       }
 
-      let targetId = eventId;
-      if (!targetId || targetId.trim() === "") {
-        targetId = `evt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      }
+      const targetId = eventId && eventId.trim() !== "" ? eventId : `evt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
       if (data && organiser) {
         const rawPayload: Record<string, any> = {
@@ -273,6 +301,9 @@ export function useSubmitEventForApproval() {
           eligibility: data.eligibility || "",
           prerequisites: data.prerequisites || "",
           customQuestions: data.customQuestions || [],
+          createdBy: organiser.uid,
+          createdByEmail: organiser.email,
+          createdByName: organiser.name,
           organiserId: organiser.uid,
           organiserName: organiser.name,
           organiserEmail: organiser.email,
@@ -285,6 +316,18 @@ export function useSubmitEventForApproval() {
 
         const payload = cleanFirestorePayload(rawPayload);
         await setDoc(doc(db, "events", targetId), payload, { merge: true });
+
+        logAuditEvent({
+          action: "FACULTY_SUBMITTED_EVENT",
+          actorUid: organiser.uid,
+          actorName: organiser.name,
+          actorEmail: organiser.email,
+          actorRole: "FACULTY",
+          targetType: "EVENT",
+          targetId: targetId,
+          details: { title: data.title, status: "PENDING_APPROVAL" },
+        });
+
         return { success: true, eventId: targetId, status: "PENDING_APPROVAL" };
       }
 

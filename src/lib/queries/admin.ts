@@ -133,6 +133,8 @@ export function useVenueConflicts(
   });
 }
 
+import { logAuditEvent } from "@/lib/audit";
+
 /**
  * 5. Approve Event Mutation (Calls Cloud Function with Direct Firestore Fallback)
  */
@@ -150,6 +152,17 @@ export function useApproveEvent() {
           await signInAnonymously(auth);
         } catch {}
       }
+
+      logAuditEvent({
+        action: "ADMIN_APPROVED_EVENT",
+        actorUid: auth.currentUser?.uid,
+        actorEmail: auth.currentUser?.email || "",
+        actorRole: "ADMIN",
+        targetType: "EVENT",
+        targetId: payload.eventId,
+        details: { reviewerNotes: payload.reviewerNotes },
+      });
+
       try {
         const approveFn = httpsCallable<typeof payload, { success: boolean; eventId: string; status: string }>(
           functions,
@@ -203,6 +216,17 @@ export function useRejectEvent() {
           await signInAnonymously(auth);
         } catch {}
       }
+
+      logAuditEvent({
+        action: payload.decision === "CHANGES_REQUESTED" ? "ADMIN_REQUESTED_CHANGES" : "ADMIN_REJECTED_EVENT",
+        actorUid: auth.currentUser?.uid,
+        actorEmail: auth.currentUser?.email || "",
+        actorRole: "ADMIN",
+        targetType: "EVENT",
+        targetId: payload.eventId,
+        details: { reason: payload.reason, reviewerNotes: payload.reviewerNotes },
+      });
+
       try {
         const rejectFn = httpsCallable<typeof payload, { success: boolean; eventId: string; status: string; decision: string }>(
           functions,

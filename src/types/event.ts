@@ -86,6 +86,9 @@ export interface Event {
   organiserPhone?: string;
   organiserRole: UserRole;
   department: string;
+  createdBy?: string;
+  createdByEmail?: string;
+  createdByName?: string;
 
   // Admin Approval Tracking
   approvedBy?: string;

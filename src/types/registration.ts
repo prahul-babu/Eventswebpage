@@ -27,6 +27,7 @@ export interface Registration {
   id: string;
   eventId: string;
   userId: string;
+  studentUid?: string;
   
   // Student Profile Snapshot at booking time
   userDisplayName: string;

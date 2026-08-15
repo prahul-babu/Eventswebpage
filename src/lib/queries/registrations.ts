@@ -215,6 +215,8 @@ export function useStudentRegistrations(userId?: string, userEmail?: string) {
   });
 }
 
+import { logAuditEvent } from "@/lib/audit";
+
 /**
  * 4. Create Registration Mutation (Direct Firestore Transaction)
  */
@@ -226,6 +228,29 @@ export function useCreateRegistration() {
       const user = auth.currentUser;
       if (!user) {
         throw new Error("You must be signed in to register for an event.");
+      }
+
+      // Check if user is already registered for this event
+      const regsRef = collection(db, "registrations");
+      const qExisting = query(
+        regsRef,
+        where("eventId", "==", payload.eventId),
+        where("userId", "==", user.uid)
+      );
+      const existingSnap = await getDocs(qExisting);
+      const activeExisting = existingSnap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as any) } as Registration))
+        .find((r) => r.status !== "CANCELLED");
+
+      if (activeExisting) {
+        return {
+          success: true,
+          registrationId: activeExisting.id,
+          status: activeExisting.status,
+          ticketCode: activeExisting.ticketCode || "APL-TICKET",
+          requiresPayment: false,
+          amount: 0,
+        };
       }
 
       const regId = `reg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -265,11 +290,16 @@ export function useCreateRegistration() {
         id: regId,
         eventId: payload.eventId,
         userId: user.uid,
+        studentUid: user.uid,
         userDisplayName: userData?.displayName || user.displayName || userData?.name || "Student Participant",
+        studentName: userData?.displayName || user.displayName || userData?.name || "Student Participant",
         userEmail: user.email || userData?.email || "",
+        studentEmail: user.email || userData?.email || "",
         userRollNumber: userData?.rollNumber || "",
+        studentRollNumber: userData?.rollNumber || "",
         userDepartment: userData?.department || "School of Technology",
         userPhone: payload.contactPhone || userData?.phoneNumber || "",
+        eventTitle: eventData.title || "Campus Event",
         status: (requiresPayment ? "PENDING_PAYMENT" : "CONFIRMED") as RegistrationStatus,
         ticketCode,
         qrCodePayload: qrPayload,
@@ -304,6 +334,17 @@ export function useCreateRegistration() {
           { merge: true }
         ).catch(() => {});
       }
+
+      logAuditEvent({
+        action: "STUDENT_REGISTERED_EVENT",
+        actorUid: user.uid,
+        actorName: userData?.displayName || user.displayName || "Student Participant",
+        actorEmail: user.email || "",
+        actorRole: "STUDENT",
+        targetType: "REGISTRATION",
+        targetId: regId,
+        details: { eventId: payload.eventId, eventTitle: eventData.title, ticketCode },
+      });
 
       return {
         success: true,
@@ -342,6 +383,9 @@ export function useCancelRegistration() {
   return useMutation<CancelRegistrationResponse, Error, CancelRegistrationPayload>({
     mutationFn: async (payload) => {
       const regDocRef = doc(db, "registrations", payload.registrationId);
+      const regSnap = await getDoc(regDocRef);
+      const regData = regSnap.exists() ? regSnap.data() : null;
+
       await setDoc(
         regDocRef,
         {
@@ -351,6 +395,30 @@ export function useCancelRegistration() {
         },
         { merge: true }
       );
+
+      if (regData?.eventId) {
+        const eventDocRef = doc(db, "events", regData.eventId);
+        const eventSnap = await getDoc(eventDocRef);
+        if (eventSnap.exists()) {
+          const currentCount = eventSnap.data().registeredCount || 0;
+          await setDoc(
+            eventDocRef,
+            { registeredCount: Math.max(0, currentCount - 1), updatedAt: new Date() },
+            { merge: true }
+          ).catch(() => {});
+        }
+      }
+
+      logAuditEvent({
+        action: "STUDENT_CANCELLED_REGISTRATION",
+        actorUid: auth.currentUser?.uid,
+        actorEmail: auth.currentUser?.email || "",
+        actorRole: "STUDENT",
+        targetType: "REGISTRATION",
+        targetId: payload.registrationId,
+        details: { eventId: regData?.eventId, ticketCode: regData?.ticketCode },
+      });
+
       return {
         success: true,
         refundInitiated: false,
