@@ -494,15 +494,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setFirebaseUser(user);
-        console.log("[AUTH-5] Firebase user received", user);
-        console.log("[AUTH-6] UID:", user.uid);
-        console.log("[AUTH-7] Firestore profile loading: users/" + user.uid);
+        setIsLoading(true);
+        console.log("[AUTH-5] Firebase user received", user.uid, user.email);
 
-        const currentLocalRole = (localStorage.getItem("apollo_user_role") as UserRole) || cachedRole || "student";
-        const currentLocalStatus = (localStorage.getItem("apollo_user_status") as UserStatus) || cachedStatus || "ACTIVE";
+        const storedLocalRole = (() => {
+          try {
+            const r = localStorage.getItem("apollo_user_role");
+            if (r === "faculty" || r === "admin" || r === "student") return r as UserRole;
+          } catch {}
+          return cachedRole || null;
+        })();
 
-        const fallbackRole: UserRole = currentLocalRole;
-        const fallbackStatus: UserStatus = currentLocalStatus;
+        const storedLocalStatus = (() => {
+          try {
+            const s = localStorage.getItem("apollo_user_status");
+            if (s) return s as UserStatus;
+          } catch {}
+          return cachedStatus || "ACTIVE";
+        })();
 
         const userDocRef = doc(db, "users", user.uid);
 
@@ -512,10 +521,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             let userData: any = null;
             if (docSnap.exists()) {
               userData = docSnap.data();
-              console.log("[AUTH-8] Firestore profile received", userData);
+              console.log("[AUTH-8] Firestore profile received for:", user.uid, userData);
 
-              const parsedRole = (userData.role ? String(userData.role).toLowerCase() : currentLocalRole) as UserRole;
-              const rawStatus = (userData.status ? String(userData.status).toUpperCase() : "ACTIVE");
+              // 1. Authoritative role resolution from Firestore
+              let parsedRole: UserRole | null = null;
+              if (userData.role) {
+                const r = String(userData.role).toLowerCase().trim();
+                if (r === "faculty" || r === "admin" || r === "student") {
+                  parsedRole = r as UserRole;
+                }
+              }
+
+              // 2. Fallback to stored local role if Firestore doc lacks role field
+              if (!parsedRole && storedLocalRole) {
+                parsedRole = storedLocalRole;
+              }
+
+              // 3. Fallback to profile clues
+              if (!parsedRole) {
+                if (userData.employeeId || userData.designation) {
+                  parsedRole = "faculty";
+                } else if (userData.rollNumber) {
+                  parsedRole = "student";
+                } else if (user.email?.toLowerCase().includes("faculty") || user.email?.toLowerCase().includes("dr.")) {
+                  parsedRole = "faculty";
+                } else if (user.email?.toLowerCase().includes("admin")) {
+                  parsedRole = "admin";
+                } else {
+                  parsedRole = "student";
+                }
+              }
+
+              const rawStatus = userData.status ? String(userData.status).toUpperCase() : (storedLocalStatus || "ACTIVE");
               const parsedStatus = (
                 rawStatus === "PENDING"
                   ? "PENDING"
@@ -525,10 +562,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                   ? "REJECTED"
                   : "ACTIVE"
               ) as UserStatus;
-
-              console.log("[AUTH-9] Role:", parsedRole, "| Status:", parsedStatus);
-              const destination = getPostLoginRoute(parsedRole, parsedStatus);
-              console.log("[AUTH-10] Route decision:", destination);
 
               const resolvedProfile: User = {
                 uid: userData.uid || user.uid,
@@ -540,7 +573,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                   "Campus Member",
                 role: parsedRole,
                 status: parsedStatus,
-                department: userData.department || "School of Technology",
+                department: userData.department || (parsedRole === "faculty" ? "Department of Computer Science & Engineering" : "School of Technology"),
                 rollNumber: userData.rollNumber,
                 employeeId: userData.employeeId,
                 designation: userData.designation,
@@ -559,30 +592,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 status: parsedStatus,
               });
               persistUserRole(parsedRole, parsedStatus);
+              setIsLoading(false);
+              setIsAuthenticating(false);
             } else {
-              console.log("[AUTH-8] Firestore profile received: (None found by UID, checking by email)");
+              console.log("[AUTH-8] Firestore doc not found for UID, checking cached role or email:", user.uid);
               
               const currentUid = user.uid;
               const currentEmail = user.email || "";
               const emailKey = currentEmail.toLowerCase().trim();
-              let effectiveRole: UserRole = currentLocalRole;
-              let effectiveStatus: UserStatus = currentLocalStatus;
+
+              let effectiveRole: UserRole = storedLocalRole || (emailKey.includes("faculty") || emailKey.includes("dr.") ? "faculty" : emailKey.includes("admin") ? "admin" : "student");
+              let effectiveStatus: UserStatus = storedLocalStatus || "ACTIVE";
               let effectiveDept = effectiveRole === "faculty" ? "Department of Computer Science & Engineering" : "School of Technology";
               let effectiveName = user.displayName || currentEmail.split("@")[0] || "Campus Member";
               let effectiveRoll: string | undefined = undefined;
               let effectiveEmp: string | undefined = undefined;
-
-              const fallbackProfile: User = {
-                uid: currentUid,
-                email: currentEmail,
-                displayName: effectiveName,
-                role: effectiveRole,
-                status: effectiveStatus,
-                department: effectiveDept,
-                onboardingCompleted: true,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-              };
 
               if (emailKey) {
                 const emailQ = query(collection(db, "users"), where("email", "==", emailKey));
@@ -590,7 +614,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                   .then((emailSnap) => {
                     if (!emailSnap.empty) {
                       const existingDoc = emailSnap.docs[0].data() as any;
-                      if (existingDoc.role) effectiveRole = String(existingDoc.role).toLowerCase() as UserRole;
+                      if (existingDoc.role) {
+                        const r = String(existingDoc.role).toLowerCase().trim();
+                        if (r === "faculty" || r === "admin" || r === "student") effectiveRole = r as UserRole;
+                      }
                       if (existingDoc.status) {
                         const s = String(existingDoc.status).toUpperCase();
                         effectiveStatus = (s === "PENDING" ? "PENDING" : s === "SUSPENDED" ? "SUSPENDED" : s === "REJECTED" ? "REJECTED" : "ACTIVE") as UserStatus;
@@ -600,10 +627,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                       if (existingDoc.rollNumber) effectiveRoll = existingDoc.rollNumber;
                       if (existingDoc.employeeId) effectiveEmp = existingDoc.employeeId;
                     }
-
-                    console.log("[AUTH-9] Role:", effectiveRole, "| Status:", effectiveStatus);
-                    const destination = getPostLoginRoute(effectiveRole, effectiveStatus);
-                    console.log("[AUTH-10] Route decision:", destination);
 
                     const resolvedProfile: User = {
                       uid: currentUid,
@@ -627,24 +650,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                     setIsAuthenticating(false);
                   })
                   .catch(() => {
+                    const fallbackProfile: User = {
+                      uid: currentUid,
+                      email: currentEmail,
+                      displayName: effectiveName,
+                      role: effectiveRole,
+                      status: effectiveStatus,
+                      department: effectiveDept,
+                      onboardingCompleted: true,
+                      createdAt: new Date(),
+                      updatedAt: new Date(),
+                    };
                     setProfile(fallbackProfile);
-                    setClaims({ role: fallbackRole, status: fallbackStatus });
-                    persistUserRole(fallbackRole, fallbackStatus);
+                    setClaims({ role: effectiveRole, status: effectiveStatus });
+                    persistUserRole(effectiveRole, effectiveStatus);
                     setDoc(userDocRef, fallbackProfile, { merge: true }).catch(() => {});
                     setIsLoading(false);
                     setIsAuthenticating(false);
                   });
               } else {
+                const fallbackProfile: User = {
+                  uid: currentUid,
+                  email: currentEmail,
+                  displayName: effectiveName,
+                  role: effectiveRole,
+                  status: effectiveStatus,
+                  department: effectiveDept,
+                  onboardingCompleted: true,
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                };
                 setProfile(fallbackProfile);
-                setClaims({ role: fallbackRole, status: fallbackStatus });
-                persistUserRole(fallbackRole, fallbackStatus);
+                setClaims({ role: effectiveRole, status: effectiveStatus });
+                persistUserRole(effectiveRole, effectiveStatus);
                 setDoc(userDocRef, fallbackProfile, { merge: true }).catch(() => {});
                 setIsLoading(false);
                 setIsAuthenticating(false);
               }
             }
-            setIsLoading(false);
-            setIsAuthenticating(false);
           },
           (err) => {
             console.error("[AUTH-ERROR] onSnapshot profile read error:", err);
@@ -758,6 +801,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       updatedAt: new Date(),
     };
 
+    persistUserRole(devRole, "ACTIVE");
+
     try {
       if (!auth.currentUser) {
         await signInAnonymously(auth);
@@ -766,8 +811,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       console.warn("[Auth] Anonymous sign-in notice:", anonErr);
     }
 
+    const effectiveUid = auth.currentUser?.uid || mockUid;
+    const finalProfile: User = {
+      ...mockProfile,
+      uid: effectiveUid,
+    };
+
     const mockFirebaseUser = {
-      uid: auth.currentUser?.uid || mockUid,
+      uid: effectiveUid,
       email: mockEmail,
       displayName: mockDisplayName,
       emailVerified: true,
@@ -782,8 +833,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     setFirebaseUser(mockFirebaseUser);
     setClaims({ role: devRole, status: "ACTIVE" });
-    setProfile(mockProfile);
+    setProfile(finalProfile);
     setIsLoading(false);
+
+    // Save document to Firestore so page refresh reliably finds the profile
+    setDoc(doc(db, "users", effectiveUid), finalProfile, { merge: true }).catch(() => {});
 
     toast.success(`Access Granted`, {
       description: `Signed in as ${mockDisplayName} (${devRole.toUpperCase()})`,

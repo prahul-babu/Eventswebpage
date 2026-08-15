@@ -12,13 +12,13 @@ interface RequireAuthProps {
 }
 
 export const RequireAuth: React.FC<RequireAuthProps> = ({ children, allowedRoles }) => {
-  const { isLoading, isAuthenticating, isAuthenticated, status, role, firebaseUser } = useAuth();
+  const { isLoading, isAuthenticating, isAuthenticated, status, role, profile, firebaseUser } = useAuth();
   const location = useLocation();
 
   const isAuthed = isAuthenticated || Boolean(firebaseUser) || Boolean(auth.currentUser);
 
   // 1. Show full-screen loading screen while resolving auth state OR while user is authenticated but profile/role is still loading from Firestore
-  if (isLoading || isAuthenticating || (isAuthed && !role)) {
+  if (isLoading || isAuthenticating || (isAuthed && (!profile || !role))) {
     console.log("[AUTH 5] isLoading value:", isLoading, "| role resolving for user:", auth.currentUser?.uid || firebaseUser?.uid);
     return <AuthLoadingScreen />;
   }
