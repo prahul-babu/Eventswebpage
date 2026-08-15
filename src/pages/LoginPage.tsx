@@ -71,7 +71,21 @@ export const LoginPage: React.FC = () => {
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
 
   // Selected Role for Sign In: "student" | "faculty" | "admin"
-  const [selectedRole, setSelectedRole] = useState<UserRole>("student");
+  const [selectedRole, setSelectedRole] = useState<UserRole>(() => {
+    try {
+      const saved = localStorage.getItem("apollo_selected_login_role");
+      if (saved === "faculty" || saved === "admin" || saved === "student") return saved as UserRole;
+    } catch {}
+    return "student";
+  });
+
+  const handleRoleSelect = (role: UserRole) => {
+    setSelectedRole(role);
+    try {
+      localStorage.setItem("apollo_selected_login_role", role);
+    } catch {}
+    if (signInError) setSignInError(null);
+  };
 
   // Sign In Form State
   const [email, setEmail] = useState("");
@@ -467,7 +481,7 @@ export const LoginPage: React.FC = () => {
                   <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100/90 rounded-xl">
                     <button
                       type="button"
-                      onClick={() => setSelectedRole("student")}
+                      onClick={() => handleRoleSelect("student")}
                       className={`flex flex-col items-center justify-center py-2 px-1 rounded-lg text-xs font-bold transition-all ${
                         selectedRole === "student"
                           ? "bg-white text-[#007A99] shadow-xs border border-slate-200/80"
@@ -480,7 +494,7 @@ export const LoginPage: React.FC = () => {
 
                     <button
                       type="button"
-                      onClick={() => setSelectedRole("faculty")}
+                      onClick={() => handleRoleSelect("faculty")}
                       className={`flex flex-col items-center justify-center py-2 px-1 rounded-lg text-xs font-bold transition-all ${
                         selectedRole === "faculty"
                           ? "bg-white text-[#007A99] shadow-xs border border-slate-200/80"
@@ -493,7 +507,7 @@ export const LoginPage: React.FC = () => {
 
                     <button
                       type="button"
-                      onClick={() => setSelectedRole("admin")}
+                      onClick={() => handleRoleSelect("admin")}
                       className={`flex flex-col items-center justify-center py-2 px-1 rounded-lg text-xs font-bold transition-all ${
                         selectedRole === "admin"
                           ? "bg-white text-[#007A99] shadow-xs border border-slate-200/80"

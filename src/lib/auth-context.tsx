@@ -62,11 +62,11 @@ export function getPostLoginRoute(
     return "/pending";
   }
 
-  if (effRole === "faculty" && effStatus === "ACTIVE") {
-    return "/faculty";
+  if (effRole === "faculty") {
+    return "/faculty/events";
   }
 
-  if (effRole === "admin" && effStatus === "ACTIVE") {
+  if (effRole === "admin") {
     return "/admin";
   }
 
@@ -315,97 +315,131 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
     async (
       emailStr: string,
       passwordStr: string,
-      selectedRole: UserRole
+      selectedRole?: UserRole
     ): Promise<{ user: FirebaseUser; role: UserRole; status: UserStatus }> => {
       setIsAuthenticating(true);
       setAuthError(null);
 
+      const trimmedEmail = emailStr.toLowerCase().trim();
+      const roleToValidate: UserRole = selectedRole || "student";
+
+      console.log("[AUTH] selected login role:", roleToValidate);
+
       try {
-        const trimmedEmail = emailStr.toLowerCase().trim();
+        // 1. Firebase Authentication
         const userCredential = await signInWithEmailAndPassword(
           auth,
           trimmedEmail,
           passwordStr
         );
         const user = userCredential.user;
+        const uid = user.uid;
 
-        console.log("AUTH STATE:", {
-          uid: user?.uid,
-          email: user?.email,
-          provider: user?.providerData?.map((p) => p.providerId),
-        });
+        console.log("[AUTH] authenticated UID:", uid);
 
         setFirebaseUser(user);
 
-        // 1. Get auth.currentUser.uid & 2. Read users/{uid}
-        console.log("FIRESTORE USER PATH:", `users/${user.uid}`);
-        const userDocRef = doc(db, "users", user.uid);
+        // 2. Fetch Firestore users/{user.uid}
+        console.log("[AUTH] Firestore user path:", `users/${uid}`);
+        const userDocRef = doc(db, "users", uid);
         let userData: any = null;
-        try {
-          const snap = await getDoc(userDocRef);
-          if (snap.exists()) {
-            userData = snap.data();
-          }
-        } catch (e) {
-          console.warn("[Auth] Firestore read notice:", e);
-        }
-        console.log("FIRESTORE USER DATA:", userData);
 
-        // 3. Read role & status
-        let effectiveRole: UserRole = "student";
-        let effectiveStatus: UserStatus = "ACTIVE";
-
-        if (userData && userData.role) {
-          const r = String(userData.role).toLowerCase().trim();
-          if (r === "faculty" || r === "admin" || r === "student") {
-            if (selectedRole && selectedRole !== "student") {
-              effectiveRole = selectedRole;
-            } else {
-              effectiveRole = r as UserRole;
-            }
+        const snap = await getDoc(userDocRef);
+        if (snap.exists()) {
+          userData = snap.data();
+          console.log("[AUTH] Firestore profile found:", userData);
+        } else {
+          console.warn("[AUTH] Firestore profile NOT found directly at users/" + uid + ", checking queries...");
+          const qByUid = query(collection(db, "users"), where("uid", "==", uid));
+          const snapByUid = await getDocs(qByUid);
+          if (!snapByUid.empty) {
+            userData = snapByUid.docs[0].data();
+            console.log("[AUTH] Firestore profile found via query(uid):", userData);
           } else {
-            effectiveRole = (selectedRole || "student").toLowerCase() as UserRole;
+            const qByEmail = query(collection(db, "users"), where("email", "==", trimmedEmail));
+            const snapByEmail = await getDocs(qByEmail);
+            if (!snapByEmail.empty) {
+              userData = snapByEmail.docs[0].data();
+              console.log("[AUTH] Firestore profile found via query(email):", userData);
+            }
           }
-        } else if (selectedRole) {
-          effectiveRole = selectedRole.toLowerCase() as UserRole;
-        } else if (trimmedEmail.includes("faculty") || trimmedEmail.includes("dr.")) {
-          effectiveRole = "faculty";
-        } else if (trimmedEmail.includes("admin")) {
-          effectiveRole = "admin";
-        } else {
-          effectiveRole = "student";
         }
 
-        if (userData && userData.status) {
-          const rawStatus = String(userData.status).toUpperCase();
-          effectiveStatus = (
-            rawStatus === "PENDING"
-              ? "PENDING"
-              : rawStatus === "SUSPENDED"
-              ? "SUSPENDED"
-              : rawStatus === "REJECTED"
-              ? "REJECTED"
-              : "ACTIVE"
-          ) as UserStatus;
-        } else {
-          effectiveStatus = (
-            effectiveRole === "faculty" ? "PENDING" : "ACTIVE"
-          ) as UserStatus;
+        if (!userData) {
+          await auth.signOut();
+          setFirebaseUser(null);
+          setProfile(null);
+          setClaims(null);
+          clearPersistedRole();
+          setIsLoading(false);
+          setIsAuthenticating(false);
+          throw new Error("Unable to load your user profile. Please contact the administrator.");
         }
-        // Check faculty approval status from database record
-        if (effectiveRole === "faculty") {
-          const isPending =
-            effectiveStatus === "PENDING" ||
-            userData?.approvalStatus === "pending" ||
-            userData?.isApproved === false ||
-            userData?.accountStatus === "pending";
 
-          const isRejected =
-            effectiveStatus === "REJECTED" ||
-            userData?.approvalStatus === "rejected" ||
-            userData?.accountStatus === "rejected";
+        // 3. Extract profile role and status
+        const profileRole: UserRole = (userData.role || "student").toLowerCase() as UserRole;
+        const rawStatus = userData.status ? String(userData.status).toUpperCase() : "ACTIVE";
+        const profileStatus: UserStatus = (
+          rawStatus === "PENDING"
+            ? "PENDING"
+            : rawStatus === "SUSPENDED"
+            ? "SUSPENDED"
+            : rawStatus === "REJECTED"
+            ? "REJECTED"
+            : "ACTIVE"
+        ) as UserStatus;
 
-          if (isPending) {
+        console.log("[AUTH] profile role:", profileRole);
+        console.log("[AUTH] profile status:", profileStatus);
+
+        // 4. Role Match Verification:
+        // When the user explicitly selects Faculty or Admin, verify that their database role matches
+        if (roleToValidate === "faculty" && profileRole !== "faculty") {
+          console.warn("[AUTH] Role mismatch: selected faculty, but database role is", profileRole);
+          await auth.signOut();
+          setFirebaseUser(null);
+          setProfile(null);
+          setClaims(null);
+          clearPersistedRole();
+          setIsLoading(false);
+          setIsAuthenticating(false);
+          throw new Error("This account is not registered as a Faculty account.");
+        }
+
+        if (roleToValidate === "admin" && profileRole !== "admin") {
+          console.warn("[AUTH] Role mismatch: selected admin, but database role is", profileRole);
+          await auth.signOut();
+          setFirebaseUser(null);
+          setProfile(null);
+          setClaims(null);
+          clearPersistedRole();
+          setIsLoading(false);
+          setIsAuthenticating(false);
+          throw new Error("This account is not registered as an Administrator account.");
+        }
+
+        // 5. Faculty Approval Verification
+        if (profileRole === "faculty") {
+          const isApproved =
+            profileStatus === "ACTIVE" ||
+            Boolean(userData.approvedAt) ||
+            userData.isApproved === true ||
+            userData.approvalStatus === "approved";
+
+          if (!isApproved) {
+            if (profileStatus === "REJECTED" || userData.approvalStatus === "rejected") {
+              console.log("[AUTH] authorization result: REJECTED");
+              await auth.signOut();
+              setFirebaseUser(null);
+              setProfile(null);
+              setClaims(null);
+              clearPersistedRole();
+              setIsLoading(false);
+              setIsAuthenticating(false);
+              throw new Error("Your faculty account has been rejected. Please contact the administrator.");
+            }
+
+            console.log("[AUTH] authorization result: PENDING_APPROVAL");
             await auth.signOut();
             setFirebaseUser(null);
             setProfile(null);
@@ -413,48 +447,40 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             clearPersistedRole();
             setIsLoading(false);
             setIsAuthenticating(false);
-            throw new Error(
-              "Your faculty account is still awaiting administrator approval. Please wait until the administrator approves your account."
-            );
-          }
-
-          if (isRejected) {
-            await auth.signOut();
-            setFirebaseUser(null);
-            setProfile(null);
-            setClaims(null);
-            clearPersistedRole();
-            setIsLoading(false);
-            setIsAuthenticating(false);
-            throw new Error(
-              "Your faculty account registration was rejected. Please contact the administrator."
-            );
+            throw new Error("Your faculty account is awaiting administrator approval.");
           }
         }
 
+        console.log("[AUTH] authorization result: APPROVED");
+        const destination = getPostLoginRoute(profileRole, profileStatus);
+        console.log("[AUTH] redirect destination:", destination);
+
+        // 6. Build and persist authoritative profile
         const userProfile: User = {
+          ...userData,
           uid: user.uid,
-          email: user.email || trimmedEmail,
+          email: userData.email || user.email || trimmedEmail,
           displayName:
-            userData?.displayName ||
+            userData.displayName ||
+            userData.name ||
             user.displayName ||
             trimmedEmail.split("@")[0],
-          role: effectiveRole,
-          status: effectiveStatus,
-          isApproved: userData?.isApproved ?? (effectiveStatus === "ACTIVE"),
-          accountStatus: userData?.accountStatus || (effectiveStatus === "ACTIVE" ? "active" : "pending"),
-          approvalStatus: userData?.approvalStatus || (effectiveStatus === "ACTIVE" ? "approved" : "pending"),
+          role: profileRole,
+          status: profileStatus,
+          isApproved: profileRole !== "faculty" || profileStatus === "ACTIVE",
+          accountStatus: profileStatus === "ACTIVE" ? "active" : "pending",
+          approvalStatus: profileStatus === "ACTIVE" ? "approved" : "pending",
           department:
-            userData?.department ||
-            (effectiveRole === "admin"
+            userData.department ||
+            (profileRole === "admin"
               ? "Institutional Administration"
-              : effectiveRole === "faculty"
-              ? "Department of Computer Science & Engineering"
+              : profileRole === "faculty"
+              ? "School of Technology"
               : "School of Technology"),
-          rollNumber: userData?.rollNumber,
-          employeeId: userData?.employeeId,
+          rollNumber: userData.rollNumber,
+          employeeId: userData.employeeId,
           onboardingCompleted: true,
-          createdAt: userData?.createdAt
+          createdAt: userData.createdAt
             ? userData.createdAt.toDate
               ? userData.createdAt.toDate()
               : new Date(userData.createdAt)
@@ -463,54 +489,18 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
         };
 
         setProfile(userProfile);
-        setClaims({ role: effectiveRole, status: effectiveStatus });
-        persistUserRole(effectiveRole, effectiveStatus);
+        setClaims({ role: profileRole, status: profileStatus });
+        persistUserRole(profileRole, profileStatus);
         setIsLoading(false);
 
-        // Save / update Firestore in background
+        // Sync Firestore document at users/{uid}
         setDoc(userDocRef, userProfile, { merge: true }).catch((err) => {
           console.warn("[Auth] Profile background sync notice:", err);
         });
 
-        return { user, role: effectiveRole, status: effectiveStatus };
+        return { user, role: profileRole, status: profileStatus };
       } catch (err: any) {
-        if (
-          err.message?.includes("awaiting administrator approval") ||
-          err.message?.includes("was rejected") ||
-          err.message?.includes("was not approved")
-        ) {
-          throw err;
-        }
-
-        // If credentials failed or user not found, check if there is a pending/rejected application
-        try {
-          const trimmedEmail = emailStr.toLowerCase().trim();
-          const fAppSnap = await getDocs(
-            query(collection(db, "facultyApplications"), where("officialEmail", "==", trimmedEmail))
-          );
-          if (!fAppSnap.empty) {
-            const fApp = fAppSnap.docs[0].data();
-            if (fApp.status === "pending" || fApp.approvalStatus === "pending" || fApp.isApproved === false) {
-              throw new Error(
-                "Your faculty account is still awaiting administrator approval. Please wait until the administrator approves your account."
-              );
-            }
-            if (fApp.status === "rejected" || fApp.approvalStatus === "rejected") {
-              throw new Error(
-                "Your faculty account registration was rejected. Please contact the administrator."
-              );
-            }
-          }
-        } catch (appCheckErr: any) {
-          if (
-            appCheckErr.message?.includes("awaiting administrator approval") ||
-            appCheckErr.message?.includes("was rejected") ||
-            appCheckErr.message?.includes("was not approved")
-          ) {
-            throw appCheckErr;
-          }
-        }
-
+        console.error("[AUTH] Login error:", err.message);
         throw err;
       } finally {
         setIsAuthenticating(false);
@@ -749,9 +739,8 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
    * AUTH STATE LISTENER (Runs on page load & after OAuth / Sign In):
    * 1. Get auth.currentUser.uid
    * 2. Read users/{auth.currentUser.uid}
-   * 3. Read role
-   * 4. Read status
-   * 5. Set state (never kicks user out while reading or if doc is being created)
+   * 3. Read role & status
+   * 4. Set state cleanly without overwriting database documents
    */
   useEffect(() => {
     let unsubscribeProfile: Unsubscribe | null = null;
@@ -760,73 +749,34 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
       if (user) {
         setFirebaseUser(user);
         setIsLoading(true);
-        console.log("[AUTH-5] Firebase user received", user.uid, user.email);
-
-        const storedLocalRole = (() => {
-          try {
-            const r = localStorage.getItem("apollo_user_role");
-            if (r === "faculty" || r === "admin" || r === "student") return r as UserRole;
-          } catch {}
-          if (typeof window !== "undefined") {
-            if (window.location.pathname.startsWith("/faculty")) return "faculty";
-            if (window.location.pathname.startsWith("/admin")) return "admin";
-          }
-          return cachedRole || null;
-        })();
-
-        const storedLocalStatus = (() => {
-          try {
-            const s = localStorage.getItem("apollo_user_status");
-            if (s) return s as UserStatus;
-          } catch {}
-          return cachedStatus || "ACTIVE";
-        })();
+        console.log("[AUTH] onAuthStateChanged user UID:", user.uid);
 
         const userDocRef = doc(db, "users", user.uid);
 
         unsubscribeProfile = onSnapshot(
           userDocRef,
-          (docSnap) => {
+          async (docSnap) => {
             let userData: any = null;
             if (docSnap.exists()) {
               userData = docSnap.data();
-              console.log("[AUTH-8] Firestore profile received for:", user.uid, userData);
-
-              // 1. Authoritative role resolution from Firestore
-              let parsedRole: UserRole | null = null;
-              if (userData.role) {
-                const r = String(userData.role).toLowerCase().trim();
-                if (r === "faculty" || r === "admin" || r === "student") {
-                  parsedRole = r as UserRole;
+            } else {
+              const qByUid = query(collection(db, "users"), where("uid", "==", user.uid));
+              const snapByUid = await getDocs(qByUid);
+              if (!snapByUid.empty) {
+                userData = snapByUid.docs[0].data();
+              } else if (user.email) {
+                const qByEmail = query(collection(db, "users"), where("email", "==", user.email.toLowerCase().trim()));
+                const snapByEmail = await getDocs(qByEmail);
+                if (!snapByEmail.empty) {
+                  userData = snapByEmail.docs[0].data();
                 }
               }
+            }
 
-              // 2. If stored local role was faculty/admin (e.g. from faculty portal or login), preserve faculty/admin
-              if (storedLocalRole === "faculty" || (typeof window !== "undefined" && window.location.pathname.startsWith("/faculty"))) {
-                parsedRole = "faculty";
-              } else if (storedLocalRole === "admin" || (typeof window !== "undefined" && window.location.pathname.startsWith("/admin"))) {
-                parsedRole = "admin";
-              } else if (!parsedRole && storedLocalRole) {
-                parsedRole = storedLocalRole;
-              }
-
-              // 3. Fallback to profile clues
-              if (!parsedRole) {
-                if (userData.employeeId || userData.designation) {
-                  parsedRole = "faculty";
-                } else if (userData.rollNumber) {
-                  parsedRole = "student";
-                } else if (user.email?.toLowerCase().includes("faculty") || user.email?.toLowerCase().includes("dr.")) {
-                  parsedRole = "faculty";
-                } else if (user.email?.toLowerCase().includes("admin")) {
-                  parsedRole = "admin";
-                } else {
-                  parsedRole = "student";
-                }
-              }
-
-              const rawStatus = userData.status ? String(userData.status).toUpperCase() : (storedLocalStatus || "ACTIVE");
-              const parsedStatus = (
+            if (userData) {
+              const profileRole: UserRole = (userData.role || "student").toLowerCase() as UserRole;
+              const rawStatus = userData.status ? String(userData.status).toUpperCase() : "ACTIVE";
+              const profileStatus: UserStatus = (
                 rawStatus === "PENDING"
                   ? "PENDING"
                   : rawStatus === "SUSPENDED"
@@ -836,18 +786,28 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
                   : "ACTIVE"
               ) as UserStatus;
 
+              const isApproved =
+                profileRole !== "faculty" ||
+                profileStatus === "ACTIVE" ||
+                Boolean(userData.approvedAt) ||
+                userData.isApproved === true ||
+                userData.approvalStatus === "approved";
+
               const resolvedProfile: User = {
                 ...userData,
-                uid: userData.uid || user.uid,
+                uid: user.uid,
                 email: userData.email || user.email || "",
                 displayName:
                   userData.displayName ||
                   userData.name ||
                   user.displayName ||
                   "Campus Member",
-                role: parsedRole,
-                status: parsedStatus,
-                department: userData.department || (parsedRole === "faculty" ? "Department of Computer Science & Engineering" : "School of Technology"),
+                role: profileRole,
+                status: profileStatus,
+                isApproved,
+                approvalStatus: isApproved ? "approved" : profileStatus === "REJECTED" ? "rejected" : "pending",
+                accountStatus: profileStatus === "ACTIVE" ? "active" : "pending",
+                department: userData.department || (profileRole === "faculty" ? "School of Technology" : "School of Technology"),
                 school: userData.school || "School of Technology",
                 rollNumber: userData.rollNumber || userData.studentId,
                 studentId: userData.studentId || userData.rollNumber,
@@ -881,150 +841,43 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
                 updatedAt: new Date(),
               };
 
+              console.log("[AUTH] profile loaded for UID:", user.uid, "role:", profileRole, "status:", profileStatus);
+
               setProfile(resolvedProfile);
               setClaims({
-                role: parsedRole,
-                status: parsedStatus,
+                role: profileRole,
+                status: profileStatus,
               });
-              persistUserRole(parsedRole, parsedStatus);
-              // Ensure doc in Firestore reflects verified role
-              if (userData.role !== parsedRole) {
-                setDoc(userDocRef, { role: parsedRole }, { merge: true }).catch(() => {});
-              }
+              persistUserRole(profileRole, profileStatus);
               setIsLoading(false);
               setIsAuthenticating(false);
             } else {
-              console.log("[AUTH-8] Firestore doc not found for UID, checking cached role or email:", user.uid);
-              
-              const currentUid = user.uid;
-              const currentEmail = user.email || "";
-              const emailKey = currentEmail.toLowerCase().trim();
-
-              let effectiveRole: UserRole = storedLocalRole || (emailKey.includes("faculty") || emailKey.includes("dr.") ? "faculty" : emailKey.includes("admin") ? "admin" : "student");
-              let effectiveStatus: UserStatus = storedLocalStatus || "ACTIVE";
-              let effectiveDept = effectiveRole === "faculty" ? "Department of Computer Science & Engineering" : "School of Technology";
-              let effectiveName = user.displayName || currentEmail.split("@")[0] || "Campus Member";
-              let effectiveRoll: string | undefined = undefined;
-              let effectiveEmp: string | undefined = undefined;
-
-              if (emailKey) {
-                const emailQ = query(collection(db, "users"), where("email", "==", emailKey));
-                getDocs(emailQ)
-                  .then((emailSnap) => {
-                    if (!emailSnap.empty) {
-                      const matchedDocs = emailSnap.docs.map(d => d.data() as any);
-                      const facultyDoc = matchedDocs.find(d => String(d.role).toLowerCase() === "faculty");
-                      const adminDoc = matchedDocs.find(d => String(d.role).toLowerCase() === "admin");
-                      const preferredDoc = facultyDoc || adminDoc || matchedDocs[0];
-
-                      if (preferredDoc.role) {
-                        const r = String(preferredDoc.role).toLowerCase().trim();
-                        if (r === "faculty" || r === "admin" || r === "student") effectiveRole = r as UserRole;
-                      }
-                      if (preferredDoc.status) {
-                        const s = String(preferredDoc.status).toUpperCase();
-                        effectiveStatus = (s === "PENDING" ? "PENDING" : s === "SUSPENDED" ? "SUSPENDED" : s === "REJECTED" ? "REJECTED" : "ACTIVE") as UserStatus;
-                      }
-                      if (preferredDoc.department) effectiveDept = preferredDoc.department;
-                      if (preferredDoc.displayName || preferredDoc.name) effectiveName = preferredDoc.displayName || preferredDoc.name;
-                      if (preferredDoc.rollNumber) effectiveRoll = preferredDoc.rollNumber;
-                      if (preferredDoc.employeeId) effectiveEmp = preferredDoc.employeeId;
-                    }
-
-                    if (storedLocalRole === "faculty" || (typeof window !== "undefined" && window.location.pathname.startsWith("/faculty"))) {
-                      effectiveRole = "faculty";
-                    } else if (storedLocalRole === "admin" || (typeof window !== "undefined" && window.location.pathname.startsWith("/admin"))) {
-                      effectiveRole = "admin";
-                    }
-
-                    const resolvedProfile: User = {
-                      uid: currentUid,
-                      email: currentEmail || emailKey,
-                      displayName: effectiveName,
-                      role: effectiveRole,
-                      status: effectiveStatus,
-                      department: effectiveDept,
-                      rollNumber: effectiveRoll,
-                      employeeId: effectiveEmp,
-                      onboardingCompleted: true,
-                      createdAt: new Date(),
-                      updatedAt: new Date(),
-                    };
-
-                    setProfile(resolvedProfile);
-                    setClaims({ role: effectiveRole, status: effectiveStatus });
-                    persistUserRole(effectiveRole, effectiveStatus);
-                    setDoc(userDocRef, resolvedProfile, { merge: true }).catch(() => {});
-                    setIsLoading(false);
-                    setIsAuthenticating(false);
-                  })
-                  .catch(() => {
-                    const fallbackProfile: User = {
-                      uid: currentUid,
-                      email: currentEmail,
-                      displayName: effectiveName,
-                      role: effectiveRole,
-                      status: effectiveStatus,
-                      department: effectiveDept,
-                      onboardingCompleted: true,
-                      createdAt: new Date(),
-                      updatedAt: new Date(),
-                    };
-                    setProfile(fallbackProfile);
-                    setClaims({ role: effectiveRole, status: effectiveStatus });
-                    persistUserRole(effectiveRole, effectiveStatus);
-                    setDoc(userDocRef, fallbackProfile, { merge: true }).catch(() => {});
-                    setIsLoading(false);
-                    setIsAuthenticating(false);
-                  });
-              } else {
-                const fallbackProfile: User = {
-                  uid: currentUid,
-                  email: currentEmail,
-                  displayName: effectiveName,
-                  role: effectiveRole,
-                  status: effectiveStatus,
-                  department: effectiveDept,
-                  onboardingCompleted: true,
-                  createdAt: new Date(),
-                  updatedAt: new Date(),
-                };
-                setProfile(fallbackProfile);
-                setClaims({ role: effectiveRole, status: effectiveStatus });
-                persistUserRole(effectiveRole, effectiveStatus);
-                setDoc(userDocRef, fallbackProfile, { merge: true }).catch(() => {});
-                setIsLoading(false);
-                setIsAuthenticating(false);
-              }
+              console.log("[AUTH] Document not yet found in Firestore for UID:", user.uid);
+              setIsLoading(false);
+              setIsAuthenticating(false);
             }
           },
-          (err) => {
-            console.error("[AUTH-ERROR] onSnapshot profile read error:", err);
+          (error) => {
+            console.error("[AUTH] Snapshot error:", error);
             setIsLoading(false);
             setIsAuthenticating(false);
           }
         );
       } else {
-        console.log("[AUTH-5] Firebase user received: null");
         setFirebaseUser(null);
-        setClaims(null);
         setProfile(null);
-        if (unsubscribeProfile) {
-          unsubscribeProfile();
-          unsubscribeProfile = null;
-        }
+        setClaims(null);
+        clearPersistedRole();
         setIsLoading(false);
         setIsAuthenticating(false);
       }
     });
 
     return () => {
+      if (unsubscribeProfile) unsubscribeProfile();
       unsubscribeAuth();
-      if (unsubscribeProfile) {
-        unsubscribeProfile();
-      }
     };
-  }, []);
+  }, [persistUserRole, clearPersistedRole]);
 
   // Microsoft OAuth Login (Reliable Popup with Redirect Fallback for maximum browser compatibility)
   const signInWithMicrosoft = useCallback(async (): Promise<void> => {
