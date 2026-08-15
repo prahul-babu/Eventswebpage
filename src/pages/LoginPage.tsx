@@ -3,7 +3,6 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import {
   createUserWithEmailAndPassword,
   updateProfile,
-  signOut as firebaseSignOut,
 } from "firebase/auth";
 import { doc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
@@ -99,7 +98,7 @@ export const LoginPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // While checking session or loading profile from Firestore, show loading screen
-  if (isLoading || isAuthenticating) {
+  if (isLoading || isAuthenticating || (isAuthenticated && (!currentRole || !currentStatus))) {
     return <AuthLoadingScreen />;
   }
 
@@ -269,26 +268,13 @@ export const LoginPage: React.FC = () => {
         { merge: true }
       );
 
-      // 4. Sign out so user explicitly signs in from the Sign In tab
-      await firebaseSignOut(auth);
-
-      // 5. Switch to Sign In tab and pre-fill email
-      setSelectedRole(signUpRole);
-      setEmail(trimmedEmail);
-      setPassword("");
-      setSignUpPassword("");
-      setSignUpConfirmPassword("");
-      setSignUpName("");
-      setSignUpRollNo("");
-      setSignUpEmpId("");
-      setAuthMode("signin");
-      setSignUpSuccessNotice(
-        `Account created successfully for ${trimmedName}! Please enter your password to Sign In.`
-      );
-
+      // 4. Immediately route new user to destination portal without logging out
       toast.success("Account Created Successfully!", {
-        description: `Please enter your password to Sign In as ${signUpRole}.`,
+        description: `Welcome to Apollo Event Hub, ${trimmedName}!`,
       });
+
+      const destination = getPostLoginRoute(signUpRole, "ACTIVE");
+      navigate(destination);
     } catch (err: any) {
       console.warn("[Auth] Sign Up error:", err.code, err.message);
 
