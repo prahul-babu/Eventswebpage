@@ -26,7 +26,7 @@ export const FacultyReportsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | EventReportStatus>("ALL");
 
-  const { data: reportItems, isLoading } = useFacultyReports(firebaseUser?.uid);
+  const { data: reportItems, isLoading } = useFacultyReports(firebaseUser?.uid, firebaseUser?.email);
 
   const filteredItems = (reportItems || []).filter((item) => {
     if (statusFilter !== "ALL" && item.reportStatus !== statusFilter) return false;

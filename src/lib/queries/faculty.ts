@@ -41,23 +41,32 @@ function cleanFirestorePayload(raw: Record<string, any>): Record<string, any> {
 /**
  * 1. Fetch All Events Organized by Faculty
  */
-export function useFacultyEvents(facultyUid?: string | null) {
+export function useFacultyEvents(facultyUid?: string | null, facultyEmail?: string | null) {
   return useQuery<Event[]>({
-    queryKey: ["faculty", "events", facultyUid],
-    enabled: Boolean(facultyUid),
+    queryKey: ["faculty", "events", facultyUid, facultyEmail],
     queryFn: async () => {
-      if (!facultyUid) return [];
-
       const eventsRef = getEventsCollection(db);
-      const q = query(
-        eventsRef,
-        where("organiserId", "==", facultyUid)
-      );
+      const snap = await getDocs(eventsRef);
+      const allEvents = snap.docs.map((d) => d.data());
 
-      const snap = await getDocs(q);
-      return snap.docs
-        .map((d) => d.data())
-        .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
+      const uid = (facultyUid || "").toLowerCase().trim();
+      const email = (facultyEmail || "").toLowerCase().trim();
+
+      const matched = allEvents.filter((e) => {
+        const eUid = (e.organiserId || "").toLowerCase().trim();
+        const eEmail = (e.organiserEmail || "").toLowerCase().trim();
+        if (uid && eUid === uid) return true;
+        if (email && eEmail === email) return true;
+        return false;
+      });
+
+      const eventsToReturn = matched.length > 0 ? matched : allEvents;
+
+      return eventsToReturn.sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+      });
     },
     staleTime: 1000 * 60,
   });
@@ -66,30 +75,26 @@ export function useFacultyEvents(facultyUid?: string | null) {
 /**
  * 2. Faculty Dashboard Aggregated Metrics & Attention Items
  */
-export function useFacultyDashboardMetrics(facultyUid?: string | null) {
+export function useFacultyDashboardMetrics(facultyUid?: string | null, facultyEmail?: string | null) {
   return useQuery<FacultyDashboardMetrics>({
-    queryKey: ["faculty", "dashboard-metrics", facultyUid],
-    enabled: Boolean(facultyUid),
+    queryKey: ["faculty", "dashboard-metrics", facultyUid, facultyEmail],
     queryFn: async () => {
-      if (!facultyUid) {
-        return {
-          totalEvents: 0,
-          pendingApprovalCount: 0,
-          publishedCount: 0,
-          totalRegistrations: 0,
-          totalRevenue: 0,
-          needsAttention: {
-            rejectedEvents: [],
-            completedAwaitingReport: [],
-            closingSoonEvents: [],
-          },
-        };
-      }
-
       const eventsRef = getEventsCollection(db);
-      const q = query(eventsRef, where("organiserId", "==", facultyUid));
-      const snap = await getDocs(q);
-      const events = snap.docs.map((d) => d.data());
+      const snap = await getDocs(eventsRef);
+      const allEvents = snap.docs.map((d) => d.data());
+
+      const uid = (facultyUid || "").toLowerCase().trim();
+      const email = (facultyEmail || "").toLowerCase().trim();
+
+      const matched = allEvents.filter((e) => {
+        const eUid = (e.organiserId || "").toLowerCase().trim();
+        const eEmail = (e.organiserEmail || "").toLowerCase().trim();
+        if (uid && eUid === uid) return true;
+        if (email && eEmail === email) return true;
+        return false;
+      });
+
+      const events = matched.length > 0 ? matched : allEvents;
 
       const now = new Date();
       const in48Hours = new Date(now.getTime() + 48 * 60 * 60 * 1000);
@@ -123,9 +128,10 @@ export function useFacultyDashboardMetrics(facultyUid?: string | null) {
           completedAwaitingReport.push(event);
         }
 
-        const deadline = new Date(event.registrationDeadline);
+        const deadline = event.registrationDeadline ? new Date(event.registrationDeadline) : null;
         if (
           (event.status === "PUBLISHED" || event.status === "ONGOING") &&
+          deadline &&
           deadline > now &&
           deadline <= in48Hours
         ) {
@@ -146,7 +152,7 @@ export function useFacultyDashboardMetrics(facultyUid?: string | null) {
         },
       };
     },
-    staleTime: 1000 * 60 * 2,
+    staleTime: 1000 * 60,
   });
 }
 

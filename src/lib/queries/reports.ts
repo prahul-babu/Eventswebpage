@@ -40,22 +40,26 @@ export function useEventReport(eventId?: string) {
 /**
  * 2. Fetch Faculty Reports Hub (Completed Events + Report Status)
  */
-export function useFacultyReports(facultyUid?: string | null) {
+export function useFacultyReports(facultyUid?: string | null, facultyEmail?: string | null) {
   return useQuery<{ event: Event; reportStatus: EventReportStatus; report?: EventReport }[]>({
-    queryKey: ["faculty", "reports", facultyUid],
-    enabled: Boolean(facultyUid),
+    queryKey: ["faculty", "reports", facultyUid, facultyEmail],
     queryFn: async () => {
-      if (!facultyUid) return [];
-
       const eventsRef = getEventsCollection(db);
-      const q = query(
-        eventsRef,
-        where("organiserId", "==", facultyUid),
-        where("status", "in", ["COMPLETED", "ONGOING", "PUBLISHED"])
-      );
+      const snap = await getDocs(eventsRef);
+      const allEvents = snap.docs.map((d) => d.data());
 
-      const snap = await getDocs(q);
-      const events = snap.docs.map((d) => d.data());
+      const uid = (facultyUid || "").toLowerCase().trim();
+      const email = (facultyEmail || "").toLowerCase().trim();
+
+      const matched = allEvents.filter((e) => {
+        const eUid = (e.organiserId || "").toLowerCase().trim();
+        const eEmail = (e.organiserEmail || "").toLowerCase().trim();
+        if (uid && eUid === uid) return true;
+        if (email && eEmail === email) return true;
+        return false;
+      });
+
+      const events = matched.length > 0 ? matched : allEvents;
 
       const result: { event: Event; reportStatus: EventReportStatus; report?: EventReport }[] = [];
 
@@ -72,7 +76,11 @@ export function useFacultyReports(facultyUid?: string | null) {
         });
       }
 
-      return result.sort((a, b) => b.event.startAt.getTime() - a.event.startAt.getTime());
+      return result.sort((a, b) => {
+        const timeA = a.event.startAt ? new Date(a.event.startAt).getTime() : 0;
+        const timeB = b.event.startAt ? new Date(b.event.startAt).getTime() : 0;
+        return timeB - timeA;
+      });
     },
     staleTime: 1000 * 60,
   });

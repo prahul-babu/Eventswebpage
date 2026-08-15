@@ -38,7 +38,7 @@ type StatusTab = "ALL" | EventStatus;
 
 export const MyEventsPage: React.FC = () => {
   const { firebaseUser } = useAuth();
-  const { data: events, isLoading } = useFacultyEvents(firebaseUser?.uid);
+  const { data: events, isLoading } = useFacultyEvents(firebaseUser?.uid, firebaseUser?.email);
 
   const withdrawMutation = useWithdrawEvent();
   const submitMutation = useSubmitEventForApproval();

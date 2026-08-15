@@ -16,8 +16,8 @@ import { Button } from "@/components/ui/button";
 
 export const FacultyDashboardPage: React.FC = () => {
   const { firebaseUser } = useAuth();
-  const { data: metrics, isLoading: isMetricsLoading } = useFacultyDashboardMetrics(firebaseUser?.uid);
-  const { data: events, isLoading: isEventsLoading } = useFacultyEvents(firebaseUser?.uid);
+  const { data: metrics, isLoading: isMetricsLoading } = useFacultyDashboardMetrics(firebaseUser?.uid, firebaseUser?.email);
+  const { data: events, isLoading: isEventsLoading } = useFacultyEvents(firebaseUser?.uid, firebaseUser?.email);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
