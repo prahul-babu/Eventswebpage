@@ -481,7 +481,7 @@ export const getReportDoc = (db: Firestore, reportId: string): DocumentReference
   doc(db, "reports", reportId).withConverter(reportConverter);
 
 export const getEventReportsCollection = (db: Firestore): CollectionReference<EventReport> =>
-  collection(db, "reports").withConverter(eventReportConverter);
+  collection(db, "event_reports").withConverter(eventReportConverter);
 
 export const getEventReportDoc = (db: Firestore, eventId: string): DocumentReference<EventReport> =>
-  doc(db, "reports", eventId).withConverter(eventReportConverter);
+  doc(db, "event_reports", eventId).withConverter(eventReportConverter);

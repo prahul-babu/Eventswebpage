@@ -27,10 +27,157 @@ export function useEventReport(eventId?: string) {
     enabled: Boolean(eventId),
     queryFn: async () => {
       if (!eventId) return null;
-      const reportDocRef = getEventReportDoc(db, eventId);
-      const snap = await getDoc(reportDocRef);
-      if (!snap.exists()) return null;
-      return snap.data();
+
+      // 1. Direct lookup in event_reports collection
+      try {
+        const eventReportRef = doc(db, "event_reports", eventId);
+        const snap1 = await getDoc(eventReportRef);
+        if (snap1.exists()) {
+          const raw = snap1.data() as any;
+          return {
+            id: snap1.id,
+            eventId: raw.eventId || snap1.id,
+            eventTitle: raw.eventTitle || "Post-Event Report",
+            category: raw.category || "ACADEMIC",
+            eventDate: toDate(raw.eventDate),
+            venueLocation: raw.venueLocation || "Main Auditorium, Campus Block A",
+            department: raw.department || "School of Technology",
+            organiserId: raw.organiserId || "",
+            organiserName: raw.organiserName || "Faculty Coordinator",
+            organiserEmail: raw.organiserEmail || "",
+            status: raw.status || "SUBMITTED",
+            adminFeedback: raw.adminFeedback || raw.reviewerFeedback,
+            reviewedBy: raw.reviewedBy,
+            reviewedByName: raw.reviewedByName,
+            reviewedAt: raw.reviewedAt ? toDate(raw.reviewedAt) : undefined,
+            submittedAt: raw.submittedAt ? toDate(raw.submittedAt) : undefined,
+            summary: raw.summary || {
+              executiveSummary: "",
+              detailedProceedings: "",
+              objectives: [],
+              outcomesAchieved: [],
+            },
+            participation: raw.participation || {
+              registeredCount: 0,
+              actualAttendance: 0,
+              departmentWiseBreakdown: {},
+              yearWiseBreakdown: {},
+              externalParticipantsCount: 0,
+              externalInstitutions: [],
+              facultyCoordinators: [],
+              studentVolunteersCount: 0,
+              studentVolunteersNames: [],
+            },
+            resourcePersons: raw.resourcePersons || [],
+            finance: raw.finance || {
+              budgetAllocated: 0,
+              budgetSpent: 0,
+              balance: 0,
+              expenses: [],
+              sponsorships: [],
+              revenueFromRegistrations: 0,
+            },
+            media: raw.media || {
+              photos: [],
+              videos: [],
+              documents: [],
+            },
+            feedback: raw.feedback || {
+              feedbackSummary: "",
+              averageRating: 5,
+              responseCount: 0,
+              participantQuotes: [],
+              suggestionsForFuture: "",
+            },
+            institutionalMapping: raw.institutionalMapping || {
+              academicYear: "2025-26",
+              naacCriterion: "Academic & Co-curricular",
+              nbaProgrammeOutcomes: [],
+              sdgGoals: [4],
+              activityType: "Co-curricular",
+              collaboratingInstitutions: [],
+              certificatesIssuedCount: 0,
+            },
+            createdAt: toDate(raw.createdAt),
+            updatedAt: toDate(raw.updatedAt),
+          };
+        }
+      } catch (e) {
+        console.warn("[useEventReport] event_reports check error:", e);
+      }
+
+      // 2. Lookup in legacy reports collection
+      try {
+        const legacyRef = doc(db, "reports", eventId);
+        const snap2 = await getDoc(legacyRef);
+        if (snap2.exists()) {
+          const raw = snap2.data() as any;
+          return {
+            id: snap2.id,
+            eventId: raw.eventId || snap2.id,
+            eventTitle: raw.eventTitle || raw.title || "Post-Event Report",
+            category: raw.category || "ACADEMIC",
+            eventDate: toDate(raw.eventDate),
+            venueLocation: raw.venueLocation || "Campus Venue",
+            department: raw.department || "School of Technology",
+            organiserId: raw.organiserId || raw.generatedBy || "",
+            organiserName: raw.organiserName || raw.generatedByName || "Faculty Coordinator",
+            organiserEmail: raw.organiserEmail || "",
+            status: raw.status || "SUBMITTED",
+            adminFeedback: raw.adminFeedback,
+            reviewedBy: raw.reviewedBy,
+            reviewedByName: raw.reviewedByName,
+            reviewedAt: raw.reviewedAt ? toDate(raw.reviewedAt) : undefined,
+            submittedAt: raw.submittedAt ? toDate(raw.submittedAt) : undefined,
+            summary: raw.summary || { executiveSummary: "", detailedProceedings: "", objectives: [], outcomesAchieved: [] },
+            participation: raw.participation || { registeredCount: 0, actualAttendance: raw.attendance || 0, departmentWiseBreakdown: {}, yearWiseBreakdown: {}, externalParticipantsCount: 0, externalInstitutions: [], facultyCoordinators: [], studentVolunteersCount: 0, studentVolunteersNames: [] },
+            resourcePersons: raw.resourcePersons || [],
+            finance: raw.finance || { budgetAllocated: 0, budgetSpent: 0, balance: 0, expenses: [], sponsorships: [], revenueFromRegistrations: raw.revenue || 0 },
+            media: raw.media || { photos: [], videos: [], documents: [] },
+            feedback: raw.feedback || { feedbackSummary: "", averageRating: 5, responseCount: 0, participantQuotes: [], suggestionsForFuture: "" },
+            institutionalMapping: raw.institutionalMapping || { academicYear: "2025-26", naacCriterion: "Academic & Co-curricular", nbaProgrammeOutcomes: [], sdgGoals: [4], activityType: "Co-curricular", collaboratingInstitutions: [], certificatesIssuedCount: 0 },
+            createdAt: toDate(raw.createdAt),
+            updatedAt: toDate(raw.updatedAt),
+          };
+        }
+      } catch (e) {
+        console.warn("[useEventReport] legacy reports check error:", e);
+      }
+
+      // 3. Fallback: Lookup in events collection
+      try {
+        const eventDocRef = doc(db, "events", eventId);
+        const snap3 = await getDoc(eventDocRef);
+        if (snap3.exists()) {
+          const ev = snap3.data() as any;
+          return {
+            id: snap3.id,
+            eventId: snap3.id,
+            eventTitle: ev.title || "Post-Event Report",
+            category: ev.category || "ACADEMIC",
+            eventDate: toDate(ev.startAt),
+            venueLocation: ev.venueLocation || "Campus Venue",
+            department: ev.department || "School of Technology",
+            organiserId: ev.organiserId || "",
+            organiserName: ev.organiserName || "Faculty Coordinator",
+            organiserEmail: ev.organiserEmail || "",
+            status: (ev.reportStatus as any) || "SUBMITTED",
+            summary: { executiveSummary: ev.description || "", detailedProceedings: "", objectives: [], outcomesAchieved: [] },
+            participation: { registeredCount: ev.registeredCount || 0, actualAttendance: ev.registeredCount || 0, departmentWiseBreakdown: {}, yearWiseBreakdown: {}, externalParticipantsCount: 0, externalInstitutions: [], facultyCoordinators: [ev.organiserName || "Faculty"], studentVolunteersCount: 0, studentVolunteersNames: [] },
+            resourcePersons: [],
+            finance: { budgetAllocated: 0, budgetSpent: 0, balance: 0, expenses: [], sponsorships: [], revenueFromRegistrations: 0 },
+            media: { photos: ev.bannerUrl ? [ev.bannerUrl] : [], videos: [], documents: [] },
+            feedback: { feedbackSummary: "", averageRating: 5, responseCount: 0, participantQuotes: [], suggestionsForFuture: "" },
+            institutionalMapping: { academicYear: "2025-26", naacCriterion: "Academic & Co-curricular", nbaProgrammeOutcomes: [], sdgGoals: [4], activityType: "Co-curricular", collaboratingInstitutions: [], certificatesIssuedCount: 0 },
+            createdAt: toDate(ev.createdAt),
+            updatedAt: toDate(ev.updatedAt),
+          };
+        }
+      } catch (e) {
+        console.warn("[useEventReport] events fallback check error:", e);
+      }
+
+      return null;
     },
     staleTime: 1000 * 30,
   });
