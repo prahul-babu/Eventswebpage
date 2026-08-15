@@ -9,6 +9,7 @@ import React, {
 import {
   User as FirebaseUser,
   OAuthProvider,
+  signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
   signInWithEmailAndPassword,
@@ -536,11 +537,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     };
   }, []);
 
-  // Microsoft OAuth Login (Using Pure signInWithRedirect per instructions)
+  // Microsoft OAuth Login (Reliable Popup with Redirect Fallback for maximum browser compatibility)
   const signInWithMicrosoft = useCallback(async (): Promise<void> => {
     setAuthError(null);
     setIsAuthenticating(true);
-    console.log("[AUTH-1] Button clicked");
+    console.log("[AUTH-1] Microsoft login initiated");
 
     try {
       const provider = new OAuthProvider("microsoft.com");
@@ -548,22 +549,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         tenant: "e4ac90d7-9035-4bc0-893a-fe0103850136",
         prompt: "select_account",
       });
-      console.log("[AUTH-2] Provider created", provider);
 
-      console.log("[AUTH-3] Authentication method started: signInWithRedirect");
-      await signInWithRedirect(auth, provider);
+      let result;
+      try {
+        result = await signInWithPopup(auth, provider);
+      } catch (popupErr: any) {
+        console.warn("[Auth] Popup method returned notice, trying redirect fallback:", popupErr.code);
+        if (popupErr.code === "auth/popup-blocked" || popupErr.code === "auth/cancelled-popup-request") {
+          await signInWithRedirect(auth, provider);
+          return;
+        }
+        throw popupErr;
+      }
+
+      if (result && result.user) {
+        console.log("[AUTH-4] Microsoft login successful:", result.user.email);
+        setFirebaseUser(result.user);
+        toast.success("Microsoft Login Successful", {
+          description: `Welcome, ${result.user.displayName || result.user.email}!`,
+        });
+      }
     } catch (err: any) {
       setIsAuthenticating(false);
-      console.error("[AUTH-ERROR] Authentication error in signInWithRedirect:", {
-        code: err.code,
-        message: err.message,
-        customData: err.customData,
-        email: err.email,
-        credential: err.credential,
-      });
-      setAuthError(err.message || "Failed to start Microsoft Sign-In");
-      toast.error("Microsoft Sign-In Failed", { description: err.message });
+      console.error("[AUTH-ERROR] Microsoft login error:", err);
+      if (err.code !== "auth/popup-closed-by-user") {
+        setAuthError(err.message || "Failed to complete Microsoft Sign-In");
+        toast.error("Microsoft Sign-In Failed", { description: err.message });
+      }
       throw err;
+    } finally {
+      setIsAuthenticating(false);
     }
   }, []);
 
