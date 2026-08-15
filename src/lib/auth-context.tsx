@@ -114,6 +114,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     () => auth.currentUser
   );
 
+  const [cachedRole, setCachedRole] = useState<UserRole | null>(() => {
+    try {
+      return (localStorage.getItem("apollo_user_role") as UserRole) || null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [cachedStatus, setCachedStatus] = useState<UserStatus | null>(() => {
+    try {
+      return (localStorage.getItem("apollo_user_status") as UserStatus) || null;
+    } catch {
+      return null;
+    }
+  });
+
   const [claims, setClaims] = useState<AuthClaims | null>(null);
   const [profile, setProfile] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -121,6 +137,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [authError, setAuthError] = useState<string | null>(null);
 
   const hasResolvedUserRef = useRef<string | null>(null);
+
+  const persistUserRole = useCallback((r: UserRole, s: UserStatus) => {
+    try {
+      localStorage.setItem("apollo_user_role", r);
+      localStorage.setItem("apollo_user_status", s);
+    } catch {}
+    setCachedRole(r);
+    setCachedStatus(s);
+  }, []);
+
+  const clearPersistedRole = useCallback(() => {
+    try {
+      localStorage.removeItem("apollo_user_role");
+      localStorage.removeItem("apollo_user_status");
+    } catch {}
+    setCachedRole(null);
+    setCachedStatus(null);
+  }, []);
 
   const clearAuthError = useCallback(() => {
     setAuthError(null);
@@ -298,6 +332,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
         setProfile(userProfile);
         setClaims({ role: effectiveRole, status: effectiveStatus });
+        persistUserRole(effectiveRole, effectiveStatus);
         setIsLoading(false);
 
         // Save / update Firestore in background
@@ -424,6 +459,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 role: parsedRole,
                 status: parsedStatus,
               });
+              persistUserRole(parsedRole, parsedStatus);
             } else {
               console.log("[AUTH-8] Firestore profile received: (None found by UID, checking by email)");
               
@@ -669,6 +705,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       setProfile(null);
       setAuthError(null);
       hasResolvedUserRef.current = null;
+      clearPersistedRole();
       toast.info("Signed Out", {
         description: "You have been safely signed out.",
       });
@@ -678,11 +715,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err) {
       console.error("[Auth] Sign-out error:", err);
     }
-  }, []);
+  }, [clearPersistedRole]);
 
   const hasActiveUser = Boolean(firebaseUser || auth.currentUser);
-  const effectiveRole = claims?.role || profile?.role || null;
-  const effectiveStatus = claims?.status || profile?.status || null;
+  const effectiveRole = claims?.role || profile?.role || cachedRole || null;
+  const effectiveStatus = claims?.status || profile?.status || cachedStatus || null;
 
   const isAuthenticated = hasActiveUser;
   const isAccountActive = effectiveStatus === "ACTIVE";
@@ -692,7 +729,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const isOnboardingRequired = false;
 
   // Resolving is true while initial auth is checking or while active user's Firestore profile is still loading
-  const isAuthResolving = isLoading || (hasActiveUser && !profile);
+  const isAuthResolving = isLoading || (hasActiveUser && !profile && !cachedRole);
 
   const switchRole = useCallback(async (newRole: UserRole) => {
     const user = auth.currentUser || firebaseUser;
@@ -714,6 +751,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       };
       await setDoc(userDocRef, updatedProfile, { merge: true });
       setClaims({ role: newRole, status: targetStatus });
+      persistUserRole(newRole, targetStatus);
       setProfile((prev) => (prev ? { ...prev, ...updatedProfile } : null));
     } catch (err: any) {
       console.error("[Auth] switchRole error:", err);
@@ -721,7 +759,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [firebaseUser]);
+  }, [firebaseUser, persistUserRole]);
 
   const value: AuthContextValue = {
     firebaseUser,

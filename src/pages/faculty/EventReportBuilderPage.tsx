@@ -8,7 +8,6 @@ import {
   DollarSign,
   Image as ImageIcon,
   MessageSquare,
-  Building2,
   CheckCircle2,
   Clock,
   Save,
@@ -38,13 +37,6 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -54,9 +46,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   EventReport,
-  NAAC_CRITERIA,
-  NBA_OUTCOMES,
-  SDG_GOALS,
   ResourcePerson,
 } from "@/types";
 import { toast } from "sonner";
@@ -68,7 +57,6 @@ const SECTIONS = [
   { id: 4, name: "Budget & Finance", icon: DollarSign, desc: "Expenses & revenue balance" },
   { id: 5, name: "Media Gallery", icon: ImageIcon, desc: "Photos, videos & documents" },
   { id: 6, name: "Feedback & Impact", icon: MessageSquare, desc: "Ratings & student quotes" },
-  { id: 7, name: "Institutional Mapping", icon: Building2, desc: "NAAC, NBA & SDG metrics" },
 ];
 
 export const EventReportBuilderPage: React.FC = () => {
@@ -171,7 +159,7 @@ export const EventReportBuilderPage: React.FC = () => {
 
   // Section completion check
   const sectionCompletions = useMemo(() => {
-    if (!reportState) return { 1: false, 2: false, 3: false, 4: false, 5: false, 6: false, 7: false };
+    if (!reportState) return { 1: false, 2: false, 3: false, 4: false, 5: false, 6: false };
     return {
       1: Boolean(reportState.summary?.executiveSummary && reportState.summary.executiveSummary.trim().length > 30),
       2: Boolean(reportState.participation?.actualAttendance > 0),
@@ -179,13 +167,12 @@ export const EventReportBuilderPage: React.FC = () => {
       4: Boolean(reportState.finance?.budgetAllocated > 0),
       5: true, // media optional or added
       6: Boolean(reportState.feedback?.feedbackSummary),
-      7: Boolean(reportState.institutionalMapping?.naacCriterion),
     };
   }, [reportState]);
 
   const overallCompleteness = useMemo(() => {
     const completedCount = Object.values(sectionCompletions).filter(Boolean).length;
-    return Math.round((completedCount / 7) * 100);
+    return Math.round((completedCount / 6) * 100);
   }, [sectionCompletions]);
 
   // Autosave handler
@@ -815,132 +802,6 @@ export const EventReportBuilderPage: React.FC = () => {
             </div>
           )}
 
-          {/* =================================================================== */}
-          {/* SECTION 7: INSTITUTIONAL MAPPING */}
-          {/* =================================================================== */}
-          {activeSection === 7 && (
-            <div className="space-y-6 animate-fade-in">
-              <div className="space-y-1">
-                <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                  Section 7: Institutional Accreditation Mapping (NAAC / NBA / SDG)
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Mandatory classification for university statutory audits and NAAC AQAR reporting.
-                </p>
-              </div>
-
-              {/* NAAC Criterion */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-800">
-                  NAAC Criterion <span className="text-rose-500">*</span>
-                </Label>
-                <Select
-                  value={reportState.institutionalMapping.naacCriterion}
-                  onValueChange={(val) =>
-                    setReportState((prev) => ({
-                      ...prev!,
-                      institutionalMapping: {
-                        ...prev!.institutionalMapping,
-                        naacCriterion: val,
-                      },
-                    }))
-                  }
-                >
-                  <SelectTrigger className="h-10 text-xs sm:text-sm rounded-xl">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {NAAC_CRITERIA.map((c) => (
-                      <SelectItem key={c.id} value={c.name}>
-                        <div>
-                          <strong className="block">{c.name}</strong>
-                          <span className="text-[10px] text-slate-400">{c.description}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* NBA Programme Outcomes */}
-              <div className="space-y-2 pt-2 border-t">
-                <Label className="text-xs font-bold text-slate-800">
-                  NBA Programme Outcomes (POs)
-                </Label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {NBA_OUTCOMES.map((po) => {
-                    const isSelected =
-                      reportState.institutionalMapping.nbaProgrammeOutcomes?.includes(po);
-                    return (
-                      <button
-                        key={po}
-                        type="button"
-                        onClick={() => {
-                          const current = reportState.institutionalMapping.nbaProgrammeOutcomes || [];
-                          const updated = isSelected
-                            ? current.filter((x) => x !== po)
-                            : [...current, po];
-                          setReportState((prev) => ({
-                            ...prev!,
-                            institutionalMapping: {
-                              ...prev!.institutionalMapping,
-                              nbaProgrammeOutcomes: updated,
-                            },
-                          }));
-                        }}
-                        className={`p-2.5 rounded-xl border text-left text-xs transition-all ${
-                          isSelected
-                            ? "bg-indigo-50 border-indigo-600 font-bold text-indigo-900"
-                            : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                        }`}
-                      >
-                        {po}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* UN Sustainable Development Goals */}
-              <div className="space-y-2 pt-2 border-t">
-                <Label className="text-xs font-bold text-slate-800">
-                  UN Sustainable Development Goals (SDGs)
-                </Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {SDG_GOALS.map((sdg) => {
-                    const isSelected = reportState.institutionalMapping.sdgGoals?.includes(sdg.id);
-                    return (
-                      <button
-                        key={sdg.id}
-                        type="button"
-                        onClick={() => {
-                          const current = reportState.institutionalMapping.sdgGoals || [];
-                          const updated = isSelected
-                            ? current.filter((x) => x !== sdg.id)
-                            : [...current, sdg.id];
-                          setReportState((prev) => ({
-                            ...prev!,
-                            institutionalMapping: {
-                              ...prev!.institutionalMapping,
-                              sdgGoals: updated,
-                            },
-                          }));
-                        }}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors ${
-                          isSelected
-                            ? "bg-emerald-600 text-white border-emerald-600 font-bold shadow-xs"
-                            : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200"
-                        }`}
-                      >
-                        {sdg.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Section Navigation Footer */}
           <div className="flex items-center justify-between pt-6 border-t border-slate-100">
             <Button
@@ -956,13 +817,13 @@ export const EventReportBuilderPage: React.FC = () => {
             </Button>
 
             <div className="flex items-center gap-2">
-              {activeSection < 7 ? (
+              {activeSection < 6 ? (
                 <Button
                   type="button"
                   size="sm"
                   onClick={() => {
                     handleSaveDraft(true);
-                    setActiveSection((prev) => Math.min(prev + 1, 7));
+                    setActiveSection((prev) => Math.min(prev + 1, 6));
                   }}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs"
                 >

@@ -17,7 +17,6 @@ import {
   getUsersCollection,
   getEventsCollection,
   getRegistrationsCollection,
-  getEventReportsCollection,
 } from "@/lib/converters";
 import type { User, UserRole, UserStatus } from "@/types";
 import { toast } from "sonner";
@@ -89,8 +88,30 @@ export function useAdminDashboardMetrics() {
 
       const totalRevenue = confirmedRegs.reduce((acc, r) => acc + (r.amountPaid || 0), 0);
 
-      const reportsSnap = await getDocs(getEventReportsCollection(db));
-      const pendingReportsCount = reportsSnap.docs.filter((d) => d.data().status === "SUBMITTED").length;
+      let pendingReportsCount = 0;
+      try {
+        const [repSnap1, repSnap2] = await Promise.all([
+          getDocs(collection(db, "event_reports")),
+          getDocs(collection(db, "reports")),
+        ]);
+        const reportedEventIds = new Set<string>();
+        repSnap1.docs.forEach((d) => {
+          const data = d.data();
+          if (data.status === "SUBMITTED" || data.status === "DRAFT") pendingReportsCount++;
+          if (data.eventId) reportedEventIds.add(data.eventId);
+        });
+        repSnap2.docs.forEach((d) => {
+          const data = d.data();
+          if (!reportedEventIds.has(d.id) && (data.status === "SUBMITTED" || data.status === "DRAFT")) pendingReportsCount++;
+        });
+        allEvents.forEach((ev: any) => {
+          if (!reportedEventIds.has(ev.id) && ev.reportStatus === "SUBMITTED") {
+            pendingReportsCount++;
+          }
+        });
+      } catch (err) {
+        console.warn("[useAdminDashboardMetrics] reports count notice:", err);
+      }
 
       return {
         totalUsers: allUsers.length,

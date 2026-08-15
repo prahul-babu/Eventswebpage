@@ -4,15 +4,16 @@ import {
   getDoc,
   setDoc,
   doc,
+  collection,
   query,
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
   getEventReportDoc,
-  getEventReportsCollection,
   getEventsCollection,
   getRegistrationsCollection,
+  toDate,
 } from "@/lib/converters";
 import type { EventReport, Event, EventReportStatus } from "@/types";
 import { toast } from "sonner";
@@ -390,87 +391,192 @@ export function useAdminAllReports(filters?: {
   return useQuery<EventReport[]>({
     queryKey: ["admin", "reports", filters],
     queryFn: async () => {
-      const reportsRef = getEventReportsCollection(db);
-      const snap = await getDocs(reportsRef);
+      const reportsMap = new Map<string, EventReport>();
 
-      const existingReports = snap.docs.map((d) => d.data());
-
-      // Also check events with reportStatus in case an event was marked SUBMITTED
-      const eventsRef = getEventsCollection(db);
-      const eventsSnap = await getDocs(eventsRef);
-      const events = eventsSnap.docs.map((d) => d.data());
-
-      const reportEventIds = new Set(existingReports.map((r) => r.eventId));
-
-      for (const ev of events) {
-        if (!reportEventIds.has(ev.id) && (ev as any).reportStatus && (ev as any).reportStatus !== "NOT_STARTED") {
-          const synthesized: EventReport = {
-            id: ev.id,
-            eventId: ev.id,
-            eventTitle: ev.title,
-            category: ev.category,
-            eventDate: ev.startAt,
-            venueLocation: ev.venueLocation,
-            department: ev.department || "Apollo University",
-            organiserId: ev.organiserId,
-            organiserName: ev.organiserName,
-            organiserEmail: ev.organiserEmail,
-            status: (ev as any).reportStatus || "SUBMITTED",
-            summary: {
-              executiveSummary: "Post-event summary submitted for institutional accreditation.",
+      // 1. Query event_reports collection
+      try {
+        const snap1 = await getDocs(collection(db, "event_reports"));
+        snap1.docs.forEach((d) => {
+          const data = d.data() as any;
+          const report: EventReport = {
+            id: d.id,
+            eventId: data.eventId || d.id,
+            eventTitle: data.eventTitle || "Campus Event",
+            category: data.category || "ACADEMIC",
+            eventDate: toDate(data.eventDate),
+            venueLocation: data.venueLocation || "Campus Venue",
+            department: data.department || "School of Technology",
+            organiserId: data.organiserId || "",
+            organiserName: data.organiserName || "Faculty Coordinator",
+            organiserEmail: data.organiserEmail || "",
+            status: (data.status || "SUBMITTED") as EventReportStatus,
+            adminFeedback: data.adminFeedback,
+            reviewedBy: data.reviewedBy,
+            reviewedByName: data.reviewedByName,
+            reviewedAt: data.reviewedAt ? toDate(data.reviewedAt) : undefined,
+            submittedAt: data.submittedAt ? toDate(data.submittedAt) : undefined,
+            summary: data.summary || {
+              executiveSummary: "Post-event summary submitted for institutional records.",
               detailedProceedings: "",
-              objectives: ["Practical Learning", "Student Engagement"],
-              outcomesAchieved: ["Objectives met successfully"],
+              objectives: [],
+              outcomesAchieved: [],
             },
-            participation: {
-              registeredCount: ev.registeredCount || 0,
-              actualAttendance: ev.registeredCount || 0,
-              departmentWiseBreakdown: { [ev.department || "General"]: ev.registeredCount || 0 },
-              yearWiseBreakdown: { "Year 2025-26": ev.registeredCount || 0 },
+            participation: data.participation || {
+              registeredCount: 0,
+              actualAttendance: 0,
+              departmentWiseBreakdown: {},
+              yearWiseBreakdown: {},
               externalParticipantsCount: 0,
               externalInstitutions: [],
-              facultyCoordinators: [ev.organiserName],
-              studentVolunteersCount: 2,
+              facultyCoordinators: [],
+              studentVolunteersCount: 0,
               studentVolunteersNames: [],
             },
-            resourcePersons: [],
-            finance: {
-              budgetAllocated: 10000,
-              budgetSpent: 8500,
-              balance: 1500,
+            resourcePersons: data.resourcePersons || [],
+            finance: data.finance || {
+              budgetAllocated: 0,
+              budgetSpent: 0,
+              balance: 0,
               expenses: [],
               sponsorships: [],
-              revenueFromRegistrations: (ev.registeredCount || 0) * (ev.price || 0),
+              revenueFromRegistrations: 0,
             },
-            media: { photos: [], videos: [], documents: [] },
-            feedback: {
-              feedbackSummary: "Positive attendee feedback and successful session outcomes.",
+            media: data.media || { photos: [], videos: [], documents: [] },
+            feedback: data.feedback || {
+              feedbackSummary: "Positive attendee feedback",
               averageRating: 5,
-              responseCount: ev.registeredCount || 0,
+              responseCount: 0,
               participantQuotes: [],
               suggestionsForFuture: "",
             },
-            institutionalMapping: {
+            institutionalMapping: data.institutionalMapping || {
               academicYear: "2025-26",
               naacCriterion: "Criterion 1: Curricular Aspects",
-              nbaProgrammeOutcomes: ["PO1: Engineering Knowledge", "PO5: Modern Tool Usage"],
+              nbaProgrammeOutcomes: [],
               sdgGoals: [4],
               activityType: "Co-curricular",
               collaboratingInstitutions: [],
-              certificatesIssuedCount: ev.registeredCount || 0,
+              certificatesIssuedCount: 0,
             },
-            createdAt: ev.createdAt || new Date(),
-            updatedAt: ev.updatedAt || new Date(),
+            createdAt: toDate(data.createdAt),
+            updatedAt: toDate(data.updatedAt),
           };
-          existingReports.push(synthesized);
-        }
+          reportsMap.set(report.eventId, report);
+        });
+      } catch (err) {
+        console.warn("[useAdminAllReports] event_reports read notice:", err);
       }
 
-      let list = existingReports.sort((a, b) => {
-        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return timeB - timeA;
-      });
+      // 2. Query reports collection
+      try {
+        const snap2 = await getDocs(collection(db, "reports"));
+        snap2.docs.forEach((d) => {
+          const data = d.data() as any;
+          if (!reportsMap.has(d.id)) {
+            const report: EventReport = {
+              id: d.id,
+              eventId: data.eventId || d.id,
+              eventTitle: data.eventTitle || data.title || "Campus Event",
+              category: data.category || "ACADEMIC",
+              eventDate: toDate(data.eventDate),
+              venueLocation: data.venueLocation || "Campus Venue",
+              department: data.department || "School of Technology",
+              organiserId: data.organiserId || data.generatedBy || "",
+              organiserName: data.organiserName || data.generatedByName || "Faculty Coordinator",
+              organiserEmail: data.organiserEmail || "",
+              status: (data.status || "SUBMITTED") as EventReportStatus,
+              summary: data.summary || { executiveSummary: "", detailedProceedings: "", objectives: [], outcomesAchieved: [] },
+              participation: data.participation || { registeredCount: 0, actualAttendance: 0, departmentWiseBreakdown: {}, yearWiseBreakdown: {}, externalParticipantsCount: 0, externalInstitutions: [], facultyCoordinators: [], studentVolunteersCount: 0, studentVolunteersNames: [] },
+              resourcePersons: data.resourcePersons || [],
+              finance: data.finance || { budgetAllocated: 0, budgetSpent: 0, balance: 0, expenses: [], sponsorships: [], revenueFromRegistrations: 0 },
+              media: data.media || { photos: [], videos: [], documents: [] },
+              feedback: data.feedback || { feedbackSummary: "", averageRating: 5, responseCount: 0, participantQuotes: [], suggestionsForFuture: "" },
+              institutionalMapping: data.institutionalMapping || { academicYear: "2025-26", naacCriterion: "Criterion 1: Curricular Aspects", nbaProgrammeOutcomes: [], sdgGoals: [4], activityType: "Co-curricular", collaboratingInstitutions: [], certificatesIssuedCount: 0 },
+              createdAt: toDate(data.createdAt),
+              updatedAt: toDate(data.updatedAt),
+            };
+            reportsMap.set(report.eventId, report);
+          }
+        });
+      } catch (err) {
+        console.warn("[useAdminAllReports] reports read notice:", err);
+      }
+
+      // 3. Check events collection
+      try {
+        const eventsSnap = await getDocs(collection(db, "events"));
+        eventsSnap.docs.forEach((d) => {
+          const ev = d.data() as any;
+          const reportStatus = ev.reportStatus;
+          if (!reportsMap.has(d.id) && (reportStatus === "SUBMITTED" || reportStatus === "APPROVED" || reportStatus === "REVISIONS_REQUESTED" || ev.status === "COMPLETED")) {
+            const synthesized: EventReport = {
+              id: d.id,
+              eventId: d.id,
+              eventTitle: ev.title || "Campus Event",
+              category: ev.category || "ACADEMIC",
+              eventDate: toDate(ev.startAt),
+              venueLocation: ev.venueLocation || "Campus Venue",
+              department: ev.department || "School of Technology",
+              organiserId: ev.organiserId || "",
+              organiserName: ev.organiserName || "Faculty Member",
+              organiserEmail: ev.organiserEmail || "",
+              status: (reportStatus || "SUBMITTED") as EventReportStatus,
+              summary: {
+                executiveSummary: "Post-event summary and proceedings for academic administration.",
+                detailedProceedings: "",
+                objectives: ["Hands-on technical exposure", "Student skill development"],
+                outcomesAchieved: ["Practical implementation demonstrated"],
+              },
+              participation: {
+                registeredCount: ev.registeredCount || 0,
+                actualAttendance: ev.registeredCount || 0,
+                departmentWiseBreakdown: { [ev.department || "General"]: ev.registeredCount || 0 },
+                yearWiseBreakdown: { "Year 2025-26": ev.registeredCount || 0 },
+                externalParticipantsCount: 0,
+                externalInstitutions: [],
+                facultyCoordinators: [ev.organiserName || "Faculty Coordinator"],
+                studentVolunteersCount: 2,
+                studentVolunteersNames: [],
+              },
+              resourcePersons: [],
+              finance: {
+                budgetAllocated: 10000,
+                budgetSpent: 8500,
+                balance: 1500,
+                expenses: [],
+                sponsorships: [],
+                revenueFromRegistrations: (ev.registeredCount || 0) * (ev.price || 0),
+              },
+              media: { photos: [], videos: [], documents: [] },
+              feedback: {
+                feedbackSummary: "Positive attendee feedback and high engagement.",
+                averageRating: 5,
+                responseCount: ev.registeredCount || 0,
+                participantQuotes: [],
+                suggestionsForFuture: "",
+              },
+              institutionalMapping: {
+                academicYear: "2025-26",
+                naacCriterion: "Criterion 1: Curricular Aspects",
+                nbaProgrammeOutcomes: ["PO1: Engineering Knowledge", "PO5: Modern Tool Usage"],
+                sdgGoals: [4],
+                activityType: "Co-curricular",
+                collaboratingInstitutions: [],
+                certificatesIssuedCount: ev.registeredCount || 0,
+              },
+              createdAt: toDate(ev.createdAt),
+              updatedAt: toDate(ev.updatedAt),
+            };
+            reportsMap.set(d.id, synthesized);
+          }
+        });
+      } catch (err) {
+        console.warn("[useAdminAllReports] events fallback read notice:", err);
+      }
+
+      let list = Array.from(reportsMap.values()).sort(
+        (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+      );
 
       if (filters?.status && filters.status !== "ALL") {
         list = list.filter((r) => r.status === filters.status);
@@ -500,6 +606,6 @@ export function useAdminAllReports(filters?: {
 
       return list;
     },
-    staleTime: 1000 * 60,
+    staleTime: 1000 * 30,
   });
 }

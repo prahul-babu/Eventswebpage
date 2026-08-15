@@ -8,7 +8,7 @@ import { CalendarCheck, ShieldCheck } from "lucide-react";
 
 export const StudentLayout: React.FC = () => {
   return (
-    <RequireAuth allowedRoles={["student"]}>
+    <RequireAuth allowedRoles={["student", "faculty", "admin"]}>
       <div className="min-h-screen flex flex-col bg-slate-50/60 text-slate-900 selection:bg-indigo-100 selection:text-indigo-900">
         <AppNavbar />
         <Breadcrumbs />
