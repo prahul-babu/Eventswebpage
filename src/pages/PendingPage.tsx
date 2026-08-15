@@ -25,6 +25,11 @@ export const PendingPage: React.FC = () => {
 
   // If unauthenticated, redirect to login
   if (!isAuthenticated || !firebaseUser) {
+    console.error("REDIRECTING TO LOGIN:", {
+      reason: "Unauthenticated access on /pending",
+      firebaseUser: firebaseUser?.uid || null,
+      email: firebaseUser?.email || null,
+    });
     return <Navigate to="/login" replace />;
   }
 

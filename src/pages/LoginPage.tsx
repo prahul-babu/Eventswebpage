@@ -108,9 +108,16 @@ export const LoginPage: React.FC = () => {
     setSignInError(null);
     setSignUpSuccessNotice(null);
     try {
-      await signInWithMicrosoft();
+      const { user, role, status } = await signInWithMicrosoft();
+      const destination = getPostLoginRoute(role, status);
+      toast.success("Welcome back!", {
+        description: `Signed in as ${user.displayName || user.email} (${role.toUpperCase()})`,
+      });
+      navigate(destination);
     } catch (err: any) {
-      toast.error("Microsoft Sign-In Failed", { description: err.message });
+      if (err.code !== "auth/popup-closed-by-user") {
+        toast.error("Microsoft Sign-In Failed", { description: err.message });
+      }
     }
   };
 
