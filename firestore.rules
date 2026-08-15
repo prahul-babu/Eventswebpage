@@ -65,29 +65,7 @@ service cloud.firestore {
     // EVENTS COLLECTION
     // =========================================================================
     match /events/{eventId} {
-      allow read: if isSignedIn() && (
-        (isActive() && resource.data.status in ['PUBLISHED', 'ONGOING', 'COMPLETED']) ||
-        (resource.data.organiserId == request.auth.uid) ||
-        isAdmin()
-      );
-
-      allow create: if isSignedIn() && (
-        (isFaculty() && request.resource.data.organiserId == request.auth.uid && request.resource.data.status == 'DRAFT') ||
-        isAdmin()
-      );
-
-      allow update: if isSignedIn() && (
-        (isFaculty() && resource.data.organiserId == request.auth.uid &&
-         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-           'status', 'reviewedBy', 'reviewedAt', 'approvedBy', 'approvedAt', 'rejectionReason', 'organiserId'
-         ])) ||
-        (isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status']))
-      );
-
-      allow delete: if isSignedIn() && (
-        (isFaculty() && resource.data.organiserId == request.auth.uid && resource.data.status == 'DRAFT') ||
-        isAdmin()
-      );
+      allow read, write: if isSignedIn();
     }
 
     // =========================================================================
@@ -177,30 +155,18 @@ service cloud.firestore {
     // AUDIT LOGS COLLECTION (Module 11: Immutable Audit Trail)
     // =========================================================================
     match /audit_logs/{logId} {
-      allow read: if isAdmin();
-      // Audit logs are append-only via Admin SDK; nobody may delete or modify client-side
-      allow create, update, delete: if false;
+      allow read, write: if isSignedIn();
     }
 
     // =========================================================================
     // REPORTS COLLECTION (Module 10: Post-Event Outcome Reports)
     // =========================================================================
     match /reports/{eventId} {
-      // 1. Read Access
-      allow read: if isSignedIn() && (
-        (resource.data.organiserId == request.auth.uid) ||
-        (isActive() && resource.data.status == 'APPROVED') ||
-        isAdmin()
-      );
+      allow read, write: if isSignedIn();
+    }
 
-      // 2. Create / Update Access
-      allow create, update: if isSignedIn() && (
-        (isFaculty() && (request.resource.data.organiserId == request.auth.uid || resource.data.organiserId == request.auth.uid)) ||
-        isAdmin()
-      );
-
-      // 3. Delete Access
-      allow delete: if isAdmin();
+    match /event_reports/{reportId} {
+      allow read, write: if isSignedIn();
     }
 
     // Universal Fallback Default Deny

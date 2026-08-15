@@ -54,15 +54,16 @@ export function useOngoingEvents() {
     const eventsRef = getEventsCollection(db);
     const q = query(
       eventsRef,
-      where("status", "==", "ONGOING"),
-      orderBy("startAt", "asc"),
-      limit(10)
+      where("status", "==", "ONGOING")
     );
 
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const liveEvents = snapshot.docs.map((d) => d.data());
+        const liveEvents = snapshot.docs
+          .map((d) => d.data())
+          .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
+          .slice(0, 10);
         setEvents(liveEvents);
         setIsLoading(false);
       },

@@ -2,7 +2,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   query,
   where,
-  orderBy,
   getDocs,
   doc,
   setDoc,
@@ -52,12 +51,13 @@ export function useFacultyEvents(facultyUid?: string | null) {
       const eventsRef = getEventsCollection(db);
       const q = query(
         eventsRef,
-        where("organiserId", "==", facultyUid),
-        orderBy("createdAt", "desc")
+        where("organiserId", "==", facultyUid)
       );
 
       const snap = await getDocs(q);
-      return snap.docs.map((d) => d.data());
+      return snap.docs
+        .map((d) => d.data())
+        .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
     },
     staleTime: 1000 * 60,
   });
@@ -372,12 +372,13 @@ export function useEventRegistrants(eventId?: string) {
       const regsRef = getRegistrationsCollection(db);
       const q = query(
         regsRef,
-        where("eventId", "==", eventId),
-        orderBy("registeredAt", "desc")
+        where("eventId", "==", eventId)
       );
 
       const snap = await getDocs(q);
-      return snap.docs.map((d) => d.data());
+      return snap.docs
+        .map((d) => d.data())
+        .sort((a, b) => (b.registeredAt?.getTime() || 0) - (a.registeredAt?.getTime() || 0));
     },
     staleTime: 1000 * 30,
   });

@@ -2,7 +2,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   query,
   where,
-  orderBy,
   getDocs,
   limit,
   doc,
@@ -25,12 +24,13 @@ export function usePendingApprovals() {
       const eventsRef = getEventsCollection(db);
       const q = query(
         eventsRef,
-        where("status", "==", "PENDING_APPROVAL"),
-        orderBy("createdAt", "asc")
+        where("status", "==", "PENDING_APPROVAL")
       );
 
       const snap = await getDocs(q);
-      return snap.docs.map((d) => d.data());
+      return snap.docs
+        .map((d) => d.data())
+        .sort((a, b) => (a.createdAt?.getTime() || 0) - (b.createdAt?.getTime() || 0));
     },
     staleTime: 1000 * 30,
   });
@@ -314,10 +314,11 @@ export function useAdminAllEvents(filters?: {
     queryKey: ["admin", "all-events", filters],
     queryFn: async () => {
       const eventsRef = getEventsCollection(db);
-      const q = query(eventsRef, orderBy("createdAt", "desc"), limit(200));
-      const snap = await getDocs(q);
+      const snap = await getDocs(eventsRef);
 
-      let list = snap.docs.map((d) => d.data());
+      let list = snap.docs
+        .map((d) => d.data())
+        .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
 
       if (filters?.status && filters.status !== "ALL") {
         list = list.filter((e) => e.status === filters.status);
