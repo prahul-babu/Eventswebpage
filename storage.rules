@@ -1,0 +1,68 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.get('role', '') == 'admin' ||
+        request.auth.token.role == 'admin'
+      );
+    }
+
+    function isFaculty() {
+      return isSignedIn() && (
+        request.auth.token.get('role', '') == 'faculty' ||
+        request.auth.token.role == 'faculty'
+      );
+    }
+
+    function isImageOrVideo() {
+      return request.resource.contentType.matches('image/.*') ||
+             request.resource.contentType.matches('video/.*');
+    }
+
+    // 1. Event Media (Banners, Posters, Highlights)
+    match /events/{eventId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isAdmin() || isFaculty()) &&
+        isImageOrVideo() &&
+        request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // 2. User Profile Avatars
+    match /users/{userId}/avatar/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin()) &&
+        request.resource.contentType.matches('image/.*') &&
+        request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // 3. Post-Event Report Media & Accreditation Documents (Module 10)
+    match /reports/{eventId}/{category}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isFaculty() || isAdmin()) && (
+        // High-res photos (max 10MB)
+        (request.resource.contentType.matches('image/.*') && request.resource.size < 10 * 1024 * 1024) ||
+        // Video clips (max 100MB)
+        (request.resource.contentType.matches('video/.*') && request.resource.size < 100 * 1024 * 1024) ||
+        // Accreditation Documents: PDF, Word, Excel (max 25MB)
+        ((request.resource.contentType.matches('application/pdf') ||
+          request.resource.contentType.matches('application/msword') ||
+          request.resource.contentType.matches('application/vnd.openxmlformats-officedocument.*') ||
+          request.resource.contentType.matches('application/vnd.ms-excel')) &&
+         request.resource.size < 25 * 1024 * 1024)
+      );
+    }
+
+    // Default Deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

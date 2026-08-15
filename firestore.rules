@@ -1,0 +1,205 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // SECURITY HELPER FUNCTIONS
+    // =========================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasRole(role) {
+      return isSignedIn() && (
+        request.auth.token.get('role', '') == role ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         userDoc().data.get('role', '') == role)
+      );
+    }
+
+    function isActive() {
+      return isSignedIn() && (
+        request.auth.token.get('status', '') == 'ACTIVE' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         userDoc().data.get('status', '') == 'ACTIVE')
+      );
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isFaculty() {
+      return hasRole('faculty');
+    }
+
+    function isStudent() {
+      return hasRole('student');
+    }
+
+    // =========================================================================
+    // USERS COLLECTION (Module 11: Admin User Directory & Profile Oversight)
+    // =========================================================================
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      // Initial profile creation upon registration
+      allow create: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      // Admins can update user fields; users can update their own unprivileged fields
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (request.auth.uid == uid &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+           'role', 'status', 'approvedBy', 'approvedAt', 'email', 'uid', 'createdAt'
+         ]))
+      );
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // EVENTS COLLECTION
+    // =========================================================================
+    match /events/{eventId} {
+      allow read: if isSignedIn() && (
+        (isActive() && resource.data.status in ['PUBLISHED', 'ONGOING', 'COMPLETED']) ||
+        (resource.data.organiserId == request.auth.uid) ||
+        isAdmin()
+      );
+
+      allow create: if isSignedIn() && (
+        (isFaculty() && request.resource.data.organiserId == request.auth.uid && request.resource.data.status == 'DRAFT') ||
+        isAdmin()
+      );
+
+      allow update: if isSignedIn() && (
+        (isFaculty() && resource.data.organiserId == request.auth.uid &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+           'status', 'reviewedBy', 'reviewedAt', 'approvedBy', 'approvedAt', 'rejectionReason', 'organiserId'
+         ])) ||
+        (isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status']))
+      );
+
+      allow delete: if isSignedIn() && (
+        (isFaculty() && resource.data.organiserId == request.auth.uid && resource.data.status == 'DRAFT') ||
+        isAdmin()
+      );
+    }
+
+    // =========================================================================
+    // REGISTRATIONS COLLECTION
+    // =========================================================================
+    match /registrations/{regId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/events/$(resource.data.eventId)) &&
+         get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.organiserId == request.auth.uid) ||
+        isAdmin()
+      );
+      
+      allow update: if isSignedIn() && (
+        (exists(/databases/$(database)/documents/events/$(resource.data.eventId)) &&
+         get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.organiserId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedIn', 'checkedInAt', 'updatedAt'])) ||
+        isAdmin()
+      );
+
+      allow create, delete: if false;
+    }
+
+    // =========================================================================
+    // PAYMENTS COLLECTION
+    // =========================================================================
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // =========================================================================
+    // SETTINGS COLLECTION (Module 11: Settings Singleton)
+    // =========================================================================
+    match /settings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // =========================================================================
+    // PROCESSED WEBHOOKS IDEMPOTENCY STORE
+    // =========================================================================
+    match /processed_webhooks/{eventId} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // INSTITUTIONAL ALLOWLIST
+    // =========================================================================
+    match /allowlist/{document=**} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // NOTIFICATIONS COLLECTION (Module 12: In-App Notifications & Subcollections)
+    // =========================================================================
+    match /notifications/{notifId} {
+      allow read, update: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
+      allow create, delete: if false;
+    }
+
+    match /notifications/{uid}/items/{itemId} {
+      allow read, update: if isSignedIn() && request.auth.uid == uid;
+      allow create, delete: if false;
+    }
+
+    // =========================================================================
+    // EMAIL QUEUE & FAILED EMAILS (Module 12: Trigger Email & Fault Tolerance)
+    // =========================================================================
+    match /mail/{mailId} {
+      allow read, write: if false; // Only Admin SDK writes and Trigger Email extension reads
+    }
+
+    match /failedEmails/{failId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // AUDIT LOGS COLLECTION (Module 11: Immutable Audit Trail)
+    // =========================================================================
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      // Audit logs are append-only via Admin SDK; nobody may delete or modify client-side
+      allow create, update, delete: if false;
+    }
+
+    // =========================================================================
+    // REPORTS COLLECTION (Module 10: Post-Event Outcome Reports)
+    // =========================================================================
+    match /reports/{eventId} {
+      // 1. Read Access
+      allow read: if isSignedIn() && (
+        (resource.data.organiserId == request.auth.uid) ||
+        (isActive() && resource.data.status == 'APPROVED') ||
+        isAdmin()
+      );
+
+      // 2. Create / Update Access
+      allow create, update: if isSignedIn() && (
+        (isFaculty() && (request.resource.data.organiserId == request.auth.uid || resource.data.organiserId == request.auth.uid)) ||
+        isAdmin()
+      );
+
+      // 3. Delete Access
+      allow delete: if isAdmin();
+    }
+
+    // Universal Fallback Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
