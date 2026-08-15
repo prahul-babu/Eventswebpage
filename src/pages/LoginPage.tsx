@@ -37,7 +37,7 @@ import {
   Briefcase,
   ShieldCheck,
 } from "lucide-react";
-import type { UserRole } from "@/types";
+import type { UserRole, UserStatus } from "@/types";
 import { toast } from "sonner";
 
 const BTECH_BRANCHES = [
@@ -263,6 +263,8 @@ export const LoginPage: React.FC = () => {
       // 2. Set Display Name in Firebase Auth
       await updateProfile(user, { displayName: trimmedName });
 
+      const initialStatus: UserStatus = signUpRole === "faculty" ? "PENDING" : "ACTIVE";
+
       // 3. Save User Profile in Cloud Firestore
       await setDoc(
         doc(db, "users", user.uid),
@@ -272,7 +274,7 @@ export const LoginPage: React.FC = () => {
           displayName: trimmedName,
           name: trimmedName,
           role: signUpRole,
-          status: "ACTIVE",
+          status: initialStatus,
           department: signUpRole === "student" ? signUpBranch : signUpFacultyDept,
           rollNumber: signUpRole === "student" ? signUpRollNo.trim().toUpperCase() : undefined,
           employeeId: signUpRole === "faculty" ? signUpEmpId.trim().toUpperCase() : undefined,
@@ -283,12 +285,18 @@ export const LoginPage: React.FC = () => {
         { merge: true }
       );
 
-      // 4. Immediately route new user to destination portal without logging out
-      toast.success("Account Created Successfully!", {
-        description: `Welcome to Apollo Event Hub, ${trimmedName}!`,
-      });
+      // 4. Immediately route user to appropriate portal / approval gate
+      if (signUpRole === "faculty") {
+        toast.info("Faculty Access Request Submitted", {
+          description: "Your registration has been submitted for Administrative approval.",
+        });
+      } else {
+        toast.success("Account Created Successfully!", {
+          description: `Welcome to Apollo Event Hub, ${trimmedName}!`,
+        });
+      }
 
-      const destination = getPostLoginRoute(signUpRole, "ACTIVE");
+      const destination = getPostLoginRoute(signUpRole, initialStatus);
       navigate(destination);
     } catch (err: any) {
       console.warn("[Auth] Sign Up error:", err.code, err.message);
