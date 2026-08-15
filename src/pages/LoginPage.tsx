@@ -33,6 +33,9 @@ import {
   ArrowRight,
   UserPlus,
   CheckCircle2,
+  GraduationCap,
+  Briefcase,
+  ShieldCheck,
 } from "lucide-react";
 import type { UserRole } from "@/types";
 import { toast } from "sonner";
@@ -46,10 +49,16 @@ const BTECH_BRANCHES = [
   "B.Tech. CSE - AI & Health Care Technology",
 ];
 
+const FACULTY_DEPARTMENTS = [
+  "Department of Computer Science & Engineering",
+  "Department of AI & Data Science",
+  "Department of Cyber Security",
+  "School of Technology - General Administration",
+];
+
 export const LoginPage: React.FC = () => {
   const {
     signInWithMicrosoft,
-    signInAsDevUser,
     isAuthenticating,
     isAuthenticated,
     firebaseUser,
@@ -62,6 +71,9 @@ export const LoginPage: React.FC = () => {
   // Mode: "signin" | "signup"
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
 
+  // Selected Role for Sign In: "student" | "faculty" | "admin"
+  const [selectedRole, setSelectedRole] = useState<UserRole>("student");
+
   // Sign In Form State
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -71,9 +83,12 @@ export const LoginPage: React.FC = () => {
   const [signUpSuccessNotice, setSignUpSuccessNotice] = useState<string | null>(null);
 
   // Sign Up Form State
+  const [signUpRole, setSignUpRole] = useState<"student" | "faculty">("student");
   const [signUpName, setSignUpName] = useState("");
   const [signUpBranch, setSignUpBranch] = useState(BTECH_BRANCHES[0]);
+  const [signUpFacultyDept, setSignUpFacultyDept] = useState(FACULTY_DEPARTMENTS[0]);
   const [signUpRollNo, setSignUpRollNo] = useState("");
+  const [signUpEmpId, setSignUpEmpId] = useState("");
   const [signUpEmail, setSignUpEmail] = useState("");
   const [signUpPassword, setSignUpPassword] = useState("");
   const [signUpConfirmPassword, setSignUpConfirmPassword] = useState("");
@@ -98,8 +113,12 @@ export const LoginPage: React.FC = () => {
 
   /**
    * STRICT SIGN IN:
-   * Only allows sign-in if user has already signed up in Firebase Auth.
-   * If not registered, blocks entry and displays a clear message asking them to Sign Up first.
+   * 1. Validates against Firebase Auth.
+   * 2. Checks Firestore document or assigns selected role.
+   * 3. Redirects to the appropriate role page:
+   *    - Student  -> /
+   *    - Faculty  -> /faculty
+   *    - Admin    -> /admin
    */
   const handleDirectSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,26 +144,41 @@ export const LoginPage: React.FC = () => {
       const userDocRef = doc(db, "users", user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
-      let role: UserRole = "student";
+      let effectiveRole: UserRole = selectedRole;
 
       if (userDocSnap.exists()) {
         const userData = userDocSnap.data();
-        role = (userData.role || "student").toLowerCase() as UserRole;
+        effectiveRole = (userData.role || selectedRole).toLowerCase() as UserRole;
       } else {
-        if (trimmedEmail.includes("admin") || trimmedEmail === "panukurahulbabu@gmail.com") {
-          role = "admin";
-        } else if (trimmedEmail.includes("faculty") || trimmedEmail.includes("dr.") || trimmedEmail.includes("prof")) {
-          role = "faculty";
-        }
+        // If user document doesn't exist yet, create it with the selected role
+        await setDoc(
+          userDocRef,
+          {
+            uid: user.uid,
+            email: trimmedEmail,
+            displayName: user.displayName || trimmedEmail.split("@")[0],
+            role: selectedRole,
+            status: "ACTIVE",
+            onboardingCompleted: true,
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        );
+        effectiveRole = selectedRole;
       }
 
       toast.success("Welcome back!", {
-        description: `Signed in as ${user.displayName || trimmedEmail}`,
+        description: `Signed in as ${user.displayName || trimmedEmail} (${effectiveRole.toUpperCase()})`,
       });
 
-      if (role === "admin") navigate("/admin");
-      else if (role === "faculty") navigate("/faculty");
-      else navigate("/");
+      // 3. Redirect to the respective portal
+      if (effectiveRole === "admin") {
+        navigate("/admin");
+      } else if (effectiveRole === "faculty") {
+        navigate("/faculty");
+      } else {
+        navigate("/");
+      }
     } catch (firebaseErr: any) {
       console.warn("[Auth] Sign In notice:", firebaseErr.code || firebaseErr.message);
 
@@ -179,9 +213,9 @@ export const LoginPage: React.FC = () => {
 
   /**
    * SIGN UP:
-   * 1. Creates real user in Firebase Authentication & creates their student document in Firestore.
-   * 2. Signs out so they must explicitly log in through Sign In page.
-   * 3. Redirects to the Sign In tab with email pre-filled and displays success notification.
+   * 1. Creates user in Firebase Authentication & creates their document in Firestore.
+   * 2. Sets role as "student" or "faculty".
+   * 3. Signs out and redirects to the Sign In tab with pre-filled email.
    */
   const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -191,10 +225,19 @@ export const LoginPage: React.FC = () => {
 
     const trimmedName = signUpName.trim();
     const trimmedEmail = signUpEmail.toLowerCase().trim();
-    const trimmedRollNo = signUpRollNo.trim().toUpperCase();
 
-    if (!trimmedName || !trimmedEmail || !trimmedRollNo || !signUpPassword) {
-      setSignUpError("Please fill all required student details.");
+    if (!trimmedName || !trimmedEmail || !signUpPassword) {
+      setSignUpError("Please fill all required details.");
+      return;
+    }
+
+    if (signUpRole === "student" && !signUpRollNo.trim()) {
+      setSignUpError("Please enter your Student Roll Number.");
+      return;
+    }
+
+    if (signUpRole === "faculty" && !signUpEmpId.trim()) {
+      setSignUpError("Please enter your Faculty / Employee ID.");
       return;
     }
 
@@ -221,7 +264,7 @@ export const LoginPage: React.FC = () => {
       // 2. Set Display Name in Firebase Auth
       await updateProfile(user, { displayName: trimmedName });
 
-      // 3. Save Student Document in Cloud Firestore
+      // 3. Save User Document in Cloud Firestore
       await setDoc(
         doc(db, "users", user.uid),
         {
@@ -229,10 +272,11 @@ export const LoginPage: React.FC = () => {
           email: trimmedEmail,
           displayName: trimmedName,
           name: trimmedName,
-          role: "student",
+          role: signUpRole,
           status: "ACTIVE",
-          department: signUpBranch,
-          rollNumber: trimmedRollNo,
+          department: signUpRole === "student" ? signUpBranch : signUpFacultyDept,
+          rollNumber: signUpRole === "student" ? signUpRollNo.trim().toUpperCase() : undefined,
+          employeeId: signUpRole === "faculty" ? signUpEmpId.trim().toUpperCase() : undefined,
           onboardingCompleted: true,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -243,18 +287,19 @@ export const LoginPage: React.FC = () => {
       // 4. Sign out so user explicitly signs in from the Sign In tab
       await firebaseSignOut(auth);
 
-      // 5. Switch to Sign In tab and pre-fill email
+      // 5. Switch to Sign In tab, pre-select role, and pre-fill email
+      setSelectedRole(signUpRole);
       setEmail(trimmedEmail);
       setPassword("");
       setSignUpPassword("");
       setSignUpConfirmPassword("");
       setAuthMode("signin");
       setSignUpSuccessNotice(
-        `Account created successfully for ${trimmedName}! Please enter your password to Sign In.`
+        `Account created successfully for ${trimmedName} (${signUpRole.toUpperCase()})! Please enter your password to Sign In.`
       );
 
       toast.success("Account Created Successfully!", {
-        description: "Please enter your password to Sign In.",
+        description: `Please enter your password to Sign In as ${signUpRole}.`,
       });
     } catch (err: any) {
       console.warn("[Auth] Sign Up error:", err.code, err.message);
@@ -327,6 +372,12 @@ export const LoginPage: React.FC = () => {
                   setSignUpError(null);
                   setSignUpSuccessNotice(null);
                   clearAuthError();
+                  setSignUpName("");
+                  setSignUpEmail("");
+                  setSignUpRollNo("");
+                  setSignUpEmpId("");
+                  setSignUpPassword("");
+                  setSignUpConfirmPassword("");
                 }}
                 className={`py-2 rounded-lg transition-all ${
                   authMode === "signup"
@@ -387,6 +438,51 @@ export const LoginPage: React.FC = () => {
                   </Alert>
                 )}
 
+                {/* ROLE SELECTOR */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-700">Select Login Portal / Role</Label>
+                  <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100/90 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRole("student")}
+                      className={`flex flex-col items-center justify-center py-2 px-1 rounded-lg text-xs font-bold transition-all ${
+                        selectedRole === "student"
+                          ? "bg-white text-[#007A99] shadow-xs border border-slate-200/80"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <GraduationCap className="w-4 h-4 mb-0.5" />
+                      <span className="text-[11px]">Student</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRole("faculty")}
+                      className={`flex flex-col items-center justify-center py-2 px-1 rounded-lg text-xs font-bold transition-all ${
+                        selectedRole === "faculty"
+                          ? "bg-white text-[#007A99] shadow-xs border border-slate-200/80"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <Briefcase className="w-4 h-4 mb-0.5" />
+                      <span className="text-[11px]">Faculty</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRole("admin")}
+                      className={`flex flex-col items-center justify-center py-2 px-1 rounded-lg text-xs font-bold transition-all ${
+                        selectedRole === "admin"
+                          ? "bg-white text-[#007A99] shadow-xs border border-slate-200/80"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <ShieldCheck className="w-4 h-4 mb-0.5" />
+                      <span className="text-[11px]">Admin</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="space-y-1">
                   <Label className="text-xs font-bold text-slate-700">Email Address</Label>
                   <div className="relative">
@@ -399,7 +495,13 @@ export const LoginPage: React.FC = () => {
                         setEmail(e.target.value);
                         if (signInError) setSignInError(null);
                       }}
-                      placeholder="student@student.apollouniversity.edu.in"
+                      placeholder={
+                        selectedRole === "admin"
+                          ? "admin@apollouniversity.edu.in"
+                          : selectedRole === "faculty"
+                          ? "faculty@apollouniversity.edu.in"
+                          : "student@student.apollouniversity.edu.in"
+                      }
                       className="h-10 pl-9 text-xs rounded-xl font-mono"
                     />
                   </div>
@@ -455,11 +557,11 @@ export const LoginPage: React.FC = () => {
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Verifying Credentials...</span>
+                      <span>Signing in as {selectedRole.toUpperCase()}...</span>
                     </>
                   ) : (
                     <>
-                      <span>Sign In to Event Hub</span>
+                      <span>Sign In as {selectedRole === "student" ? "Student" : selectedRole === "faculty" ? "Faculty" : "Admin"}</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
@@ -478,8 +580,37 @@ export const LoginPage: React.FC = () => {
                   </Alert>
                 )}
 
+                {/* Account Type Selector for Sign Up */}
                 <div className="space-y-1">
-                  <Label className="text-xs font-bold text-slate-700">Full Name (as per Student ID)</Label>
+                  <Label className="text-xs font-bold text-slate-700">Account Type</Label>
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setSignUpRole("student")}
+                      className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        signUpRole === "student"
+                          ? "bg-white text-[#007A99] shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      Student Account
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSignUpRole("faculty")}
+                      className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        signUpRole === "faculty"
+                          ? "bg-white text-[#007A99] shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      Faculty Account
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs font-bold text-slate-700">Full Name</Label>
                   <div className="relative">
                     <UserIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <Input
@@ -490,60 +621,115 @@ export const LoginPage: React.FC = () => {
                         setSignUpName(e.target.value);
                         if (signUpError) setSignUpError(null);
                       }}
-                      placeholder="e.g. Rahul Sharma"
+                      placeholder={signUpRole === "student" ? "e.g. Rahul Sharma" : "e.g. Dr. Priya Nair"}
                       className="h-9 pl-9 text-xs rounded-xl"
                     />
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <Label className="text-xs font-bold text-slate-700">B.Tech Specialization</Label>
-                  <Select value={signUpBranch} onValueChange={setSignUpBranch}>
-                    <SelectTrigger className="h-9 text-xs rounded-xl">
-                      <SelectValue placeholder="Select B.Tech Branch" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {BTECH_BRANCHES.map((b) => (
-                        <SelectItem key={b} value={b} className="text-xs">
-                          {b}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {signUpRole === "student" ? (
+                  <>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-bold text-slate-700">B.Tech Specialization</Label>
+                      <Select value={signUpBranch} onValueChange={setSignUpBranch}>
+                        <SelectTrigger className="h-9 text-xs rounded-xl">
+                          <SelectValue placeholder="Select B.Tech Branch" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BTECH_BRANCHES.map((b) => (
+                            <SelectItem key={b} value={b} className="text-xs">
+                              {b}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-slate-700">Roll Number</Label>
-                    <Input
-                      required
-                      autoComplete="off"
-                      value={signUpRollNo}
-                      onChange={(e) => {
-                        setSignUpRollNo(e.target.value.toUpperCase());
-                        if (signUpError) setSignUpError(null);
-                      }}
-                      placeholder="22BCE1042"
-                      className="h-9 text-xs rounded-xl uppercase font-mono"
-                    />
-                  </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs font-bold text-slate-700">Roll Number</Label>
+                        <Input
+                          required
+                          autoComplete="off"
+                          value={signUpRollNo}
+                          onChange={(e) => {
+                            setSignUpRollNo(e.target.value.toUpperCase());
+                            if (signUpError) setSignUpError(null);
+                          }}
+                          placeholder="22BCE1042"
+                          className="h-9 text-xs rounded-xl uppercase font-mono"
+                        />
+                      </div>
 
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-slate-700">Email Address</Label>
-                    <Input
-                      type="email"
-                      required
-                      autoComplete="off"
-                      value={signUpEmail}
-                      onChange={(e) => {
-                        setSignUpEmail(e.target.value);
-                        if (signUpError) setSignUpError(null);
-                      }}
-                      placeholder="student@student.apollouniversity.edu.in"
-                      className="h-9 text-xs rounded-xl font-mono"
-                    />
-                  </div>
-                </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs font-bold text-slate-700">Email Address</Label>
+                        <Input
+                          type="email"
+                          required
+                          autoComplete="off"
+                          value={signUpEmail}
+                          onChange={(e) => {
+                            setSignUpEmail(e.target.value);
+                            if (signUpError) setSignUpError(null);
+                          }}
+                          placeholder="student@student.apollouniversity.edu.in"
+                          className="h-9 text-xs rounded-xl font-mono"
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-bold text-slate-700">Department</Label>
+                      <Select value={signUpFacultyDept} onValueChange={setSignUpFacultyDept}>
+                        <SelectTrigger className="h-9 text-xs rounded-xl">
+                          <SelectValue placeholder="Select Department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FACULTY_DEPARTMENTS.map((d) => (
+                            <SelectItem key={d} value={d} className="text-xs">
+                              {d}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs font-bold text-slate-700">Faculty ID / Emp No</Label>
+                        <Input
+                          required
+                          autoComplete="off"
+                          value={signUpEmpId}
+                          onChange={(e) => {
+                            setSignUpEmpId(e.target.value.toUpperCase());
+                            if (signUpError) setSignUpError(null);
+                          }}
+                          placeholder="EMP-CSE-042"
+                          className="h-9 text-xs rounded-xl uppercase font-mono"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs font-bold text-slate-700">Email Address</Label>
+                        <Input
+                          type="email"
+                          required
+                          autoComplete="off"
+                          value={signUpEmail}
+                          onChange={(e) => {
+                            setSignUpEmail(e.target.value);
+                            if (signUpError) setSignUpError(null);
+                          }}
+                          placeholder="faculty@apollouniversity.edu.in"
+                          className="h-9 text-xs rounded-xl font-mono"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
@@ -592,7 +778,7 @@ export const LoginPage: React.FC = () => {
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Complete Sign Up</span>
+                      <span>Complete Sign Up ({signUpRole})</span>
                     </>
                   )}
                 </Button>
