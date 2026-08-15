@@ -101,14 +101,20 @@ service cloud.firestore {
         isAdmin()
       );
       
+      allow create: if isSignedIn() && (
+        request.resource.data.userId == request.auth.uid || isAdmin()
+      );
+
       allow update: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
         (exists(/databases/$(database)/documents/events/$(resource.data.eventId)) &&
-         get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.organiserId == request.auth.uid &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checkedIn', 'checkedInAt', 'updatedAt'])) ||
+         get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.organiserId == request.auth.uid) ||
         isAdmin()
       );
 
-      allow create, delete: if false;
+      allow delete: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
     }
 
     // =========================================================================

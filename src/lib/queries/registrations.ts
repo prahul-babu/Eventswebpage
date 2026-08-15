@@ -6,12 +6,13 @@ import {
   orderBy,
   doc,
   getDoc,
+  setDoc,
 } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
-import { db, functions } from "@/lib/firebase";
+import { db, auth } from "@/lib/firebase";
 import { getRegistrationsCollection, getEventsCollection } from "@/lib/converters";
 import type {
   Registration,
+  RegistrationStatus,
   Event,
   CreateRegistrationPayload,
   CreateRegistrationResponse,
@@ -39,14 +40,14 @@ export function useEventDetail(eventId?: string) {
       if (!snap.exists()) return null;
       return snap.data();
     },
-    staleTime: 1000 * 60 * 2,
+    staleTime: 1000 * 60 * 2, // 2 minutes
   });
 }
 
 /**
- * 2. Fetch User's Existing Booking for a Specific Event
+ * 2. Fetch User Registration for Specific Event
  */
-export function useEventUserRegistration(eventId?: string, userId?: string | null) {
+export function useUserEventRegistration(eventId?: string, userId?: string | null) {
   return useQuery<Registration | null>({
     queryKey: ["registration", "event", eventId, userId],
     enabled: Boolean(eventId && userId),
@@ -63,24 +64,28 @@ export function useEventUserRegistration(eventId?: string, userId?: string | nul
       const snap = await getDocs(q);
       if (snap.empty) return null;
 
-      const active = snap.docs.map((d) => d.data()).find((r) => r.status !== "CANCELLED");
-      return active || snap.docs[0].data();
+      const activeReg = snap.docs
+        .map((d) => d.data())
+        .find((r) => r.status !== "CANCELLED");
+
+      return activeReg || snap.docs[0].data();
     },
     staleTime: 1000 * 30, // 30 seconds
   });
 }
 
+export const useEventUserRegistration = useUserEventRegistration;
+
 /**
- * 3. Fetch All Student Registrations (Separated into Upcoming & Past)
+ * 3. Fetch All Student Registrations Hook (Partitioned into upcoming vs past)
  */
-export function useStudentRegistrations(userId?: string | null) {
+export function useStudentRegistrations(userId?: string) {
   return useQuery<{
     upcoming: StudentRegistrationItem[];
     past: StudentRegistrationItem[];
     all: StudentRegistrationItem[];
   }>({
     queryKey: ["student", "registrations", userId],
-    enabled: Boolean(userId),
     queryFn: async () => {
       if (!userId) return { upcoming: [], past: [], all: [] };
 
@@ -91,12 +96,11 @@ export function useStudentRegistrations(userId?: string | null) {
         orderBy("registeredAt", "desc")
       );
 
-      const regsSnap = await getDocs(q);
-      if (regsSnap.empty) return { upcoming: [], past: [], all: [] };
+      const regSnap = await getDocs(q);
+      const registrations = regSnap.docs.map((d) => d.data());
 
-      const registrations = regsSnap.docs.map((d) => d.data());
-      const eventsRef = getEventsCollection(db);
       const items: StudentRegistrationItem[] = [];
+      const eventsRef = getEventsCollection(db);
 
       for (const reg of registrations) {
         const eventDocRef = doc(eventsRef, reg.eventId);
@@ -121,19 +125,92 @@ export function useStudentRegistrations(userId?: string | null) {
 }
 
 /**
- * 4. Create Registration Mutation (Calls Cloud Function)
+ * 4. Create Registration Mutation (Direct Firestore Transaction)
  */
 export function useCreateRegistration() {
   const queryClient = useQueryClient();
 
   return useMutation<CreateRegistrationResponse, Error, CreateRegistrationPayload>({
-    mutationFn: async (payload) => {
-      const createFn = httpsCallable<CreateRegistrationPayload, CreateRegistrationResponse>(
-        functions,
-        "createRegistration"
-      );
-      const result = await createFn(payload);
-      return result.data;
+    mutationFn: async (payload: CreateRegistrationPayload): Promise<CreateRegistrationResponse> => {
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error("You must be signed in to register for an event.");
+      }
+
+      const regId = `reg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const randomCode = Math.floor(1000 + Math.random() * 9000);
+      const ticketCode = `APL-${Date.now().toString(36).toUpperCase().substring(2, 6)}-${randomCode}`;
+
+      // Get user profile snapshot from Firestore
+      const userDocRef = doc(db, "users", user.uid);
+      const userSnap = await getDoc(userDocRef);
+      const userData = userSnap.exists() ? userSnap.data() : null;
+
+      // Get event details from Firestore
+      const eventDocRef = doc(db, "events", payload.eventId);
+      const eventSnap = await getDoc(eventDocRef);
+      if (!eventSnap.exists()) {
+        throw new Error("Event not found.");
+      }
+      const eventData = eventSnap.data() as Event;
+
+      const qrPayload = JSON.stringify({
+        ticketCode,
+        eventId: payload.eventId,
+        userId: user.uid,
+        eventTitle: eventData.title || "Campus Event",
+        issuedAt: new Date().toISOString(),
+      });
+
+      const requiresPayment = Boolean(eventData.isPaid && eventData.price > 0);
+
+      const newRegistration = {
+        id: regId,
+        eventId: payload.eventId,
+        userId: user.uid,
+        userDisplayName: userData?.displayName || user.displayName || userData?.name || "Student Participant",
+        userEmail: user.email || userData?.email || "",
+        userRollNumber: userData?.rollNumber || "",
+        userDepartment: userData?.department || "School of Technology",
+        userPhone: payload.contactPhone || userData?.phoneNumber || "",
+        status: (requiresPayment ? "PENDING_PAYMENT" : "CONFIRMED") as RegistrationStatus,
+        ticketCode,
+        qrCodePayload: qrPayload,
+        teamName: payload.teamName || undefined,
+        teamMembers: payload.teamMembers || [],
+        answers: payload.answers || {},
+        isPaid: !requiresPayment,
+        amountPaid: requiresPayment ? 0 : eventData.price || 0,
+        checkedIn: false,
+        registeredAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      // Save registration directly to Firestore
+      const regDocRef = doc(db, "registrations", regId);
+      await setDoc(regDocRef, newRegistration);
+
+      // Increment registeredCount on the event
+      if (!requiresPayment) {
+        await setDoc(
+          eventDocRef,
+          {
+            registeredCount: (eventData.registeredCount || 0) + 1,
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        ).catch(() => {});
+      }
+
+      return {
+        success: true,
+        registrationId: regId,
+        status: (requiresPayment ? "PENDING_PAYMENT" : "CONFIRMED") as RegistrationStatus,
+        ticketCode,
+        requiresPayment,
+        amount: eventData.price || 0,
+      };
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["event", variables.eventId] });
@@ -142,15 +219,9 @@ export function useCreateRegistration() {
       queryClient.invalidateQueries({ queryKey: ["student", "next-registration"] });
       queryClient.invalidateQueries({ queryKey: ["student", "stats"] });
 
-      if (data.status === "WAITLISTED") {
-        toast.info("Added to Waitlist", {
-          description: "You have been placed on the priority waitlist for this event.",
-        });
-      } else {
-        toast.success("Registration Confirmed!", {
-          description: `Your ticket pass code is ${data.ticketCode}.`,
-        });
-      }
+      toast.success("Registration Confirmed!", {
+        description: `Your ticket pass code is ${data.ticketCode}.`,
+      });
     },
     onError: (err) => {
       toast.error("Registration Failed", {
@@ -161,19 +232,27 @@ export function useCreateRegistration() {
 }
 
 /**
- * 5. Cancel Registration Mutation (Calls Cloud Function)
+ * 5. Cancel Registration Mutation (Direct Firestore Update)
  */
 export function useCancelRegistration() {
   const queryClient = useQueryClient();
 
   return useMutation<CancelRegistrationResponse, Error, CancelRegistrationPayload>({
     mutationFn: async (payload) => {
-      const cancelFn = httpsCallable<CancelRegistrationPayload, CancelRegistrationResponse>(
-        functions,
-        "cancelRegistration"
+      const regDocRef = doc(db, "registrations", payload.registrationId);
+      await setDoc(
+        regDocRef,
+        {
+          status: "CANCELLED",
+          cancellationReason: payload.reason || "User requested cancellation",
+          updatedAt: new Date(),
+        },
+        { merge: true }
       );
-      const result = await cancelFn(payload);
-      return result.data;
+      return {
+        success: true,
+        refundInitiated: false,
+      };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["event"] });
