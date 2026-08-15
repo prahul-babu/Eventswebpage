@@ -283,32 +283,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         console.log("FIRESTORE USER DATA:", userData);
 
         // 3. Read role & status
-        let effectiveRole: UserRole = selectedRole || "student";
+        let effectiveRole: UserRole = "student";
         let effectiveStatus: UserStatus = "ACTIVE";
 
-        if (userData) {
-          if (userData.role === "admin" && selectedRole === "admin") {
-            effectiveRole = "admin";
-          } else if (selectedRole) {
-            effectiveRole = selectedRole;
-          } else if (userData.role) {
-            effectiveRole = userData.role.toLowerCase() as UserRole;
+        if (userData && userData.role) {
+          const r = String(userData.role).toLowerCase().trim();
+          if (r === "faculty" || r === "admin" || r === "student") {
+            if (selectedRole && selectedRole !== "student") {
+              effectiveRole = selectedRole;
+            } else {
+              effectiveRole = r as UserRole;
+            }
+          } else {
+            effectiveRole = (selectedRole || "student").toLowerCase() as UserRole;
           }
-
-          if (userData.status) {
-            const rawStatus = String(userData.status).toUpperCase();
-            effectiveStatus = (
-              rawStatus === "PENDING"
-                ? "PENDING"
-                : rawStatus === "SUSPENDED"
-                ? "SUSPENDED"
-                : rawStatus === "REJECTED"
-                ? "REJECTED"
-                : "ACTIVE"
-            ) as UserStatus;
-          }
+        } else if (selectedRole) {
+          effectiveRole = selectedRole.toLowerCase() as UserRole;
+        } else if (trimmedEmail.includes("faculty") || trimmedEmail.includes("dr.")) {
+          effectiveRole = "faculty";
+        } else if (trimmedEmail.includes("admin")) {
+          effectiveRole = "admin";
         } else {
-          effectiveRole = selectedRole || "student";
+          effectiveRole = "student";
+        }
+
+        if (userData && userData.status) {
+          const rawStatus = String(userData.status).toUpperCase();
+          effectiveStatus = (
+            rawStatus === "PENDING"
+              ? "PENDING"
+              : rawStatus === "SUSPENDED"
+              ? "SUSPENDED"
+              : rawStatus === "REJECTED"
+              ? "REJECTED"
+              : "ACTIVE"
+          ) as UserStatus;
+        } else {
           effectiveStatus = (
             effectiveRole === "faculty" ? "PENDING" : "ACTIVE"
           ) as UserStatus;
@@ -502,6 +512,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             const r = localStorage.getItem("apollo_user_role");
             if (r === "faculty" || r === "admin" || r === "student") return r as UserRole;
           } catch {}
+          if (typeof window !== "undefined") {
+            if (window.location.pathname.startsWith("/faculty")) return "faculty";
+            if (window.location.pathname.startsWith("/admin")) return "admin";
+          }
           return cachedRole || null;
         })();
 
@@ -532,8 +546,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 }
               }
 
-              // 2. Fallback to stored local role if Firestore doc lacks role field
-              if (!parsedRole && storedLocalRole) {
+              // 2. If stored local role was faculty/admin (e.g. from faculty portal or login), preserve faculty/admin
+              if (storedLocalRole === "faculty" || (typeof window !== "undefined" && window.location.pathname.startsWith("/faculty"))) {
+                parsedRole = "faculty";
+              } else if (storedLocalRole === "admin" || (typeof window !== "undefined" && window.location.pathname.startsWith("/admin"))) {
+                parsedRole = "admin";
+              } else if (!parsedRole && storedLocalRole) {
                 parsedRole = storedLocalRole;
               }
 
@@ -592,6 +610,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 status: parsedStatus,
               });
               persistUserRole(parsedRole, parsedStatus);
+              // Ensure doc in Firestore reflects verified role
+              if (userData.role !== parsedRole) {
+                setDoc(userDocRef, { role: parsedRole }, { merge: true }).catch(() => {});
+              }
               setIsLoading(false);
               setIsAuthenticating(false);
             } else {
@@ -613,19 +635,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 getDocs(emailQ)
                   .then((emailSnap) => {
                     if (!emailSnap.empty) {
-                      const existingDoc = emailSnap.docs[0].data() as any;
-                      if (existingDoc.role) {
-                        const r = String(existingDoc.role).toLowerCase().trim();
+                      const matchedDocs = emailSnap.docs.map(d => d.data() as any);
+                      const facultyDoc = matchedDocs.find(d => String(d.role).toLowerCase() === "faculty");
+                      const adminDoc = matchedDocs.find(d => String(d.role).toLowerCase() === "admin");
+                      const preferredDoc = facultyDoc || adminDoc || matchedDocs[0];
+
+                      if (preferredDoc.role) {
+                        const r = String(preferredDoc.role).toLowerCase().trim();
                         if (r === "faculty" || r === "admin" || r === "student") effectiveRole = r as UserRole;
                       }
-                      if (existingDoc.status) {
-                        const s = String(existingDoc.status).toUpperCase();
+                      if (preferredDoc.status) {
+                        const s = String(preferredDoc.status).toUpperCase();
                         effectiveStatus = (s === "PENDING" ? "PENDING" : s === "SUSPENDED" ? "SUSPENDED" : s === "REJECTED" ? "REJECTED" : "ACTIVE") as UserStatus;
                       }
-                      if (existingDoc.department) effectiveDept = existingDoc.department;
-                      if (existingDoc.displayName || existingDoc.name) effectiveName = existingDoc.displayName || existingDoc.name;
-                      if (existingDoc.rollNumber) effectiveRoll = existingDoc.rollNumber;
-                      if (existingDoc.employeeId) effectiveEmp = existingDoc.employeeId;
+                      if (preferredDoc.department) effectiveDept = preferredDoc.department;
+                      if (preferredDoc.displayName || preferredDoc.name) effectiveName = preferredDoc.displayName || preferredDoc.name;
+                      if (preferredDoc.rollNumber) effectiveRoll = preferredDoc.rollNumber;
+                      if (preferredDoc.employeeId) effectiveEmp = preferredDoc.employeeId;
+                    }
+
+                    if (storedLocalRole === "faculty" || (typeof window !== "undefined" && window.location.pathname.startsWith("/faculty"))) {
+                      effectiveRole = "faculty";
+                    } else if (storedLocalRole === "admin" || (typeof window !== "undefined" && window.location.pathname.startsWith("/admin"))) {
+                      effectiveRole = "admin";
                     }
 
                     const resolvedProfile: User = {
