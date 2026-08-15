@@ -4,6 +4,8 @@ import { useAuth, getPostLoginRoute } from "@/lib/auth-context";
 import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
 import type { UserRole } from "@/types";
 
+import { auth } from "@/lib/firebase";
+
 interface RequireAuthProps {
   children: React.ReactNode;
   allowedRoles?: UserRole[];
@@ -13,17 +15,19 @@ export const RequireAuth: React.FC<RequireAuthProps> = ({ children, allowedRoles
   const { isLoading, isAuthenticating, isAuthenticated, status, role, firebaseUser } = useAuth();
   const location = useLocation();
 
+  const isAuthed = isAuthenticated || Boolean(firebaseUser) || Boolean(auth.currentUser);
+
   // 1. Show full-screen loading screen while resolving auth state
-  if (isLoading || isAuthenticating) {
+  if (isLoading || isAuthenticating || (Boolean(auth.currentUser) && !firebaseUser)) {
     return <AuthLoadingScreen />;
   }
 
-  // 2. Redirect unauthenticated users to /login ONLY after auth loading is complete
-  if (!isAuthenticated || !firebaseUser) {
+  // 2. Redirect unauthenticated users to /login ONLY after auth loading is complete and user does not exist
+  if (!isAuthed) {
     console.error("REDIRECTING TO LOGIN:", {
       reason: "Unauthenticated access on protected route: " + location.pathname,
-      firebaseUser: firebaseUser?.uid || null,
-      email: firebaseUser?.email || null,
+      firebaseUser: firebaseUser?.uid || auth.currentUser?.uid || null,
+      email: firebaseUser?.email || auth.currentUser?.email || null,
     });
     return <Navigate to="/login" state={{ from: location }} replace />;
   }

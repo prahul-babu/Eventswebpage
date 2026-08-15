@@ -99,13 +99,13 @@ export const LoginPage: React.FC = () => {
   const [signUpError, setSignUpError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // While checking session or actively authenticating with Microsoft, show loading screen
-  if (isLoading || isAuthenticating) {
+  // While checking initial session, show loading screen
+  if (isLoading) {
     return <AuthLoadingScreen />;
   }
 
   // If already authenticated, redirect to destination portal
-  if (isAuthenticated && firebaseUser) {
+  if (isAuthenticated || Boolean(firebaseUser) || Boolean(auth.currentUser)) {
     return <Navigate to={getPostLoginRoute(currentRole, currentStatus)} replace />;
   }
 
@@ -780,16 +780,25 @@ export const LoginPage: React.FC = () => {
               type="button"
               variant="outline"
               onClick={handleMicrosoftSignIn}
-              disabled={isAuthenticating}
-              className="w-full h-10 border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-800 font-semibold text-xs rounded-xl flex items-center justify-center gap-2.5 shadow-2xs"
+              disabled={isAuthenticating || isSubmitting}
+              className="w-full h-10 border-slate-300 hover:border-slate-400 hover:bg-slate-50 text-slate-800 font-semibold text-xs rounded-xl flex items-center justify-center gap-2.5 shadow-2xs transition-all"
             >
-              <svg className="w-4 h-4 shrink-0" viewBox="0 0 21 21">
-                <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                <rect x="1" y="1" width="9" height="9" fill="#00a4ef" />
-                <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-              </svg>
-              <span>Continue with Microsoft Outlook</span>
+              {isAuthenticating ? (
+                <>
+                  <Loader2 className="w-4 h-4 text-[#007A99] animate-spin" />
+                  <span>Connecting to Microsoft Outlook...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 21 21">
+                    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                    <rect x="1" y="1" width="9" height="9" fill="#00a4ef" />
+                    <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                  </svg>
+                  <span>Continue with Microsoft Outlook</span>
+                </>
+              )}
             </Button>
           </CardContent>
 

@@ -812,12 +812,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
+  const hasActiveUser = Boolean(firebaseUser || auth.currentUser);
   const effectiveRole =
-    claims?.role || profile?.role || (firebaseUser ? "student" : null);
+    claims?.role || profile?.role || (hasActiveUser ? "student" : null);
   const effectiveStatus =
-    claims?.status || profile?.status || (firebaseUser ? "ACTIVE" : null);
+    claims?.status || profile?.status || (hasActiveUser ? "ACTIVE" : null);
 
-  const isAuthenticated = Boolean(firebaseUser);
+  const isAuthenticated = hasActiveUser;
   const isAccountActive = effectiveStatus === "ACTIVE";
   const isPendingApproval = effectiveStatus === "PENDING";
   const isAccountBlocked =
