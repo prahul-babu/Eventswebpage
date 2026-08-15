@@ -237,23 +237,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     []
   );
 
+function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) {
+      continue;
+    }
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      !(value instanceof Date) &&
+      !(value && typeof value === "object" && "seconds" in value)
+    ) {
+      result[key] = sanitizeFirestorePayload(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
   const updateUserProfile = useCallback(
     async (updates: Partial<User>): Promise<void> => {
       const user = auth.currentUser;
       if (!user) throw new Error("No authenticated user session");
 
       const userDocRef = doc(db, "users", user.uid);
-      const cleanUpdates: Record<string, any> = {
-        ...updates,
+
+      // Filter out protected system fields to ensure role/status cannot be escalated via user profile edit
+      const { uid: _uid, role: _role, status: _status, ...allowedUpdates } = updates as any;
+
+      const cleanUpdates = sanitizeFirestorePayload({
+        ...allowedUpdates,
         updatedAt: new Date(),
-      };
-      delete cleanUpdates.uid;
+      });
 
       await setDoc(userDocRef, cleanUpdates, { merge: true });
 
-      if (updates.displayName) {
+      if (cleanUpdates.displayName) {
         try {
-          await updateProfile(user, { displayName: updates.displayName });
+          await updateProfile(user, { displayName: cleanUpdates.displayName });
         } catch (e) {
           console.warn("[Auth] updateProfile error:", e);
         }

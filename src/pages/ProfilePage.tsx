@@ -103,29 +103,45 @@ export const ProfilePage: React.FC = () => {
 
     try {
       setIsSaving(true);
-      await updateUserProfile({
+      const updatesPayload: Record<string, any> = {
         displayName: displayName.trim(),
         phoneNumber: phoneNumber.trim(),
         phone: phoneNumber.trim(),
         personalEmail: personalEmail.trim(),
         department: department.trim(),
         school: school.trim(),
-        programme: programme.trim(),
-        year: year.trim(),
-        semester: semester.trim(),
-        section: section.trim(),
-        rollNumber: rollNumber.trim() ? rollNumber.trim().toUpperCase() : undefined,
-        studentId: rollNumber.trim() ? rollNumber.trim().toUpperCase() : undefined,
-        employeeId: employeeId.trim() ? employeeId.trim().toUpperCase() : undefined,
-        facultyId: employeeId.trim() ? employeeId.trim().toUpperCase() : undefined,
-        designation: designation.trim(),
-        expertise: expertise.trim(),
-        officeLocation: officeLocation.trim(),
         address: address.trim(),
-        emergencyContactName: emergencyContactName.trim(),
-        emergencyContactPhone: emergencyContactPhone.trim(),
-        emergencyContactRelation: emergencyContactRelation.trim(),
-      });
+      };
+
+      if (role === "student") {
+        if (rollNumber.trim()) {
+          updatesPayload.rollNumber = rollNumber.trim().toUpperCase();
+          updatesPayload.studentId = rollNumber.trim().toUpperCase();
+        }
+        if (programme.trim()) updatesPayload.programme = programme.trim();
+        if (year.trim()) updatesPayload.year = year.trim();
+        if (semester.trim()) updatesPayload.semester = semester.trim();
+        if (section.trim()) updatesPayload.section = section.trim();
+        if (emergencyContactName.trim()) updatesPayload.emergencyContactName = emergencyContactName.trim();
+        if (emergencyContactPhone.trim()) updatesPayload.emergencyContactPhone = emergencyContactPhone.trim();
+        if (emergencyContactRelation.trim()) updatesPayload.emergencyContactRelation = emergencyContactRelation.trim();
+      } else if (role === "faculty") {
+        if (employeeId.trim()) {
+          updatesPayload.employeeId = employeeId.trim().toUpperCase();
+          updatesPayload.facultyId = employeeId.trim().toUpperCase();
+        }
+        if (designation.trim()) updatesPayload.designation = designation.trim();
+        if (expertise.trim()) updatesPayload.expertise = expertise.trim();
+        if (officeLocation.trim()) updatesPayload.officeLocation = officeLocation.trim();
+      } else if (role === "admin") {
+        if (employeeId.trim()) {
+          updatesPayload.employeeId = employeeId.trim().toUpperCase();
+          updatesPayload.adminId = employeeId.trim().toUpperCase();
+        }
+        if (designation.trim()) updatesPayload.designation = designation.trim();
+      }
+
+      await updateUserProfile(updatesPayload);
       toast.success("Profile Updated Successfully", {
         description: "Your institutional details have been saved to the campus registry.",
       });

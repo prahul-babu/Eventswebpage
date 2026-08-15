@@ -12,7 +12,7 @@ import {
   CheckCircle2,
   AlertTriangle,
 } from "lucide-react";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAdminUserDetail } from "@/lib/queries/adminUsers";
 import { Card } from "@/components/ui/card";
@@ -58,20 +58,27 @@ export const AdminUserProfilePage: React.FC = () => {
     if (!uid) return;
     try {
       setIsSaving(true);
-      await updateDoc(doc(db, "users", uid), {
+      const rawUpdates: Record<string, any> = {
         department: department.trim(),
         designation: designation.trim(),
         phoneNumber: phoneNumber.trim(),
         phone: phoneNumber.trim(),
-        rollNumber: rollNumber.trim() ? rollNumber.trim().toUpperCase() : null,
-        studentId: rollNumber.trim() ? rollNumber.trim().toUpperCase() : null,
-        employeeId: employeeId.trim() ? employeeId.trim().toUpperCase() : null,
-        facultyId: employeeId.trim() ? employeeId.trim().toUpperCase() : null,
         programme: programme.trim(),
         year: year.trim(),
         section: section.trim(),
         updatedAt: new Date(),
-      });
+      };
+
+      if (rollNumber.trim()) {
+        rawUpdates.rollNumber = rollNumber.trim().toUpperCase();
+        rawUpdates.studentId = rollNumber.trim().toUpperCase();
+      }
+      if (employeeId.trim()) {
+        rawUpdates.employeeId = employeeId.trim().toUpperCase();
+        rawUpdates.facultyId = employeeId.trim().toUpperCase();
+      }
+
+      await setDoc(doc(db, "users", uid), rawUpdates, { merge: true });
       toast.success("Profile Details Updated", { description: "User dossier changes saved to Firestore." });
     } catch (err: any) {
       toast.error("Update Failed", { description: err.message });
