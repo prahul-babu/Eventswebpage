@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { UserRole } from "@/types";
 
 export type RegistrationButtonState =
   | "REGISTER_NOW"
@@ -43,7 +44,7 @@ export type RegistrationButtonState =
 export const EventDetailPage: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
-  const { firebaseUser, isAuthenticated } = useAuth();
+  const { firebaseUser, isAuthenticated, role, profile } = useAuth();
 
   const { data: event, isLoading: isEventLoading, isError } = useEventDetail(eventId);
   const { data: userRegistration } = useEventUserRegistration(
@@ -58,83 +59,142 @@ export const EventDetailPage: React.FC = () => {
 
   const activeRegistration = userRegistration || createdRegistration;
 
-  // 1. Determine Button State Machine
-  const buttonState: { state: RegistrationButtonState; text: string; subtext?: string; disabled: boolean } =
-    useMemo(() => {
-      if (!event) {
-        return { state: "CLOSED", text: "Unavailable", disabled: true };
-      }
+  const activeRole: UserRole | null = profile?.role || role || (typeof window !== "undefined" ? (localStorage.getItem("apollo_user_role") as UserRole) : null);
+  const isFaculty = activeRole === "faculty";
+  const isAdmin = activeRole === "admin";
+  const isOrganiser = Boolean(
+    firebaseUser &&
+    event &&
+    (event.organiserId === firebaseUser.uid ||
+     (event.organiserEmail && firebaseUser.email && event.organiserEmail.toLowerCase() === firebaseUser.email.toLowerCase()))
+  );
 
-      if (activeRegistration && activeRegistration.status !== "CANCELLED") {
+  // 1. Determine Button State Machine
+  const buttonState: {
+    state: RegistrationButtonState | "MANAGE_EVENT" | "FACULTY_VIEW" | "ADMIN_VIEW";
+    text: string;
+    subtext?: string;
+    disabled: boolean;
+  } = useMemo(() => {
+    if (!event) {
+      return { state: "CLOSED", text: "Unavailable", disabled: true };
+    }
+
+    // Role-based Handling for Non-Students:
+    if (isFaculty) {
+      if (isOrganiser) {
         return {
-          state: "ALREADY_REGISTERED",
-          text: "View Your Entry Ticket",
-          subtext: `Status: ${activeRegistration.status} (${activeRegistration.ticketCode})`,
+          state: "MANAGE_EVENT",
+          text: "Manage Event",
+          subtext: "Faculty Organiser Console • View registrants & check-ins",
           disabled: false,
         };
       }
-
-      if (event.status === "CANCELLED") {
-        return { state: "CANCELLED", text: "Event Cancelled", subtext: "This event will not take place", disabled: true };
-      }
-
-      const now = new Date();
-      if (event.status === "COMPLETED" || (event.endAt && isPast(new Date(event.endAt)))) {
-        return { state: "COMPLETED", text: "Event Ended", subtext: "This event has already concluded", disabled: true };
-      }
-
-      if (event.registrationStartAt && now < new Date(event.registrationStartAt)) {
-        return {
-          state: "NOT_YET_OPEN",
-          text: "Registration Opening Soon",
-          subtext: `Opens on ${format(new Date(event.registrationStartAt), "MMM d, yyyy")}`,
-          disabled: true,
-        };
-      }
-
-      if (event.registrationDeadline && now > new Date(event.registrationDeadline)) {
-        return {
-          state: "CLOSED",
-          text: "Registration Closed",
-          subtext: `Deadline passed on ${format(new Date(event.registrationDeadline), "MMM d, h:mm a")}`,
-          disabled: true,
-        };
-      }
-
-      const capacity = event.capacity || 0;
-      const registered = event.registeredCount || 0;
-      const isFull = capacity > 0 && registered >= capacity;
-
-      if (isFull) {
-        if (event.allowWaitlist) {
-          return {
-            state: "WAITLIST_AVAILABLE",
-            text: "Join Priority Waitlist",
-            subtext: "Seats are full; you will be notified if a spot opens up",
-            disabled: false,
-          };
-        }
-        return {
-          state: "SOLD_OUT",
-          text: "Housefull / Sold Out",
-          subtext: "All available seats have been booked",
-          disabled: true,
-        };
-      }
-
       return {
-        state: "REGISTER_NOW",
-        text: !event.isPaid || event.price === 0 ? "Register for Free" : `Register & Pay • ₹${event.price}`,
-        subtext: "Instant digital pass & QR code confirmation",
+        state: "FACULTY_VIEW",
+        text: "Faculty & Staff View",
+        subtext: "Student registration only • Academic oversight portal",
+        disabled: true,
+      };
+    }
+
+    if (isAdmin) {
+      return {
+        state: "ADMIN_VIEW",
+        text: "Admin Oversight",
+        subtext: "Institutional Admin Console • Governance & Approvals",
         disabled: false,
       };
-    }, [event, activeRegistration]);
+    }
+
+    // STUDENT FLOW:
+    if (activeRegistration && activeRegistration.status !== "CANCELLED") {
+      return {
+        state: "ALREADY_REGISTERED",
+        text: "View Your Entry Ticket",
+        subtext: `Status: ${activeRegistration.status} (${activeRegistration.ticketCode})`,
+        disabled: false,
+      };
+    }
+
+    if (event.status === "CANCELLED") {
+      return { state: "CANCELLED", text: "Event Cancelled", subtext: "This event will not take place", disabled: true };
+    }
+
+    const now = new Date();
+    if (event.status === "COMPLETED" || (event.endAt && isPast(new Date(event.endAt)))) {
+      return { state: "COMPLETED", text: "Event Ended", subtext: "This event has already concluded", disabled: true };
+    }
+
+    if (event.registrationStartAt && now < new Date(event.registrationStartAt)) {
+      return {
+        state: "NOT_YET_OPEN",
+        text: "Registration Opening Soon",
+        subtext: `Opens on ${format(new Date(event.registrationStartAt), "MMM d, yyyy")}`,
+        disabled: true,
+      };
+    }
+
+    if (event.registrationDeadline && now > new Date(event.registrationDeadline)) {
+      return {
+        state: "CLOSED",
+        text: "Registration Closed",
+        subtext: `Deadline passed on ${format(new Date(event.registrationDeadline), "MMM d, h:mm a")}`,
+        disabled: true,
+      };
+    }
+
+    const capacity = event.capacity || 0;
+    const registered = event.registeredCount || 0;
+    const isFull = capacity > 0 && registered >= capacity;
+
+    if (isFull) {
+      if (event.allowWaitlist) {
+        return {
+          state: "WAITLIST_AVAILABLE",
+          text: "Join Priority Waitlist",
+          subtext: "Seats are full; you will be notified if a spot opens up",
+          disabled: false,
+        };
+      }
+      return {
+        state: "SOLD_OUT",
+        text: "Housefull / Sold Out",
+        subtext: "All available seats have been booked",
+        disabled: true,
+      };
+    }
+
+    return {
+      state: "REGISTER_NOW",
+      text: !event.isPaid || event.price === 0 ? "Register for Free" : `Register & Pay • ₹${event.price}`,
+      subtext: "Instant digital pass & QR code confirmation",
+      disabled: false,
+    };
+  }, [event, activeRegistration, isFaculty, isAdmin, isOrganiser]);
 
   const handleActionClick = () => {
     if (!isAuthenticated) {
       navigate("/login");
       return;
     }
+
+    if (!event) return;
+
+    if (buttonState.state === "MANAGE_EVENT") {
+      navigate(`/faculty/events/${event.id}/registrants`);
+      return;
+    }
+
+    if (buttonState.state === "ADMIN_VIEW") {
+      navigate(`/admin/approvals/${event.id}`);
+      return;
+    }
+
+    if (buttonState.state === "FACULTY_VIEW") {
+      return;
+    }
+
     if (buttonState.state === "ALREADY_REGISTERED") {
       setTicketModalOpen(true);
       return;
@@ -518,11 +578,23 @@ export const EventDetailPage: React.FC = () => {
                           ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                           : buttonState.state === "WAITLIST_AVAILABLE"
                           ? "bg-amber-600 hover:bg-amber-700 text-white"
+                          : buttonState.state === "FACULTY_VIEW"
+                          ? "bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed"
+                          : buttonState.state === "MANAGE_EVENT"
+                          ? "bg-indigo-700 hover:bg-indigo-800 text-white"
+                          : buttonState.state === "ADMIN_VIEW"
+                          ? "bg-amber-600 hover:bg-amber-700 text-white"
                           : "bg-indigo-600 hover:bg-indigo-700 text-white"
                       }`}
                     >
                       {buttonState.state === "ALREADY_REGISTERED" ? (
                         <Ticket className="w-4 h-4 mr-2" />
+                      ) : buttonState.state === "FACULTY_VIEW" ? (
+                        <ShieldCheck className="w-4 h-4 mr-2 text-indigo-500" />
+                      ) : buttonState.state === "MANAGE_EVENT" ? (
+                        <Users className="w-4 h-4 mr-2" />
+                      ) : buttonState.state === "ADMIN_VIEW" ? (
+                        <ShieldCheck className="w-4 h-4 mr-2 text-amber-300" />
                       ) : (
                         <CheckCircle2 className="w-4 h-4 mr-2" />
                       )}
@@ -563,7 +635,15 @@ export const EventDetailPage: React.FC = () => {
           size="sm"
           onClick={handleActionClick}
           disabled={buttonState.disabled}
-          className="h-11 px-6 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-700 text-white shadow-md"
+          className={`h-11 px-6 rounded-xl font-bold text-xs shadow-md ${
+            buttonState.state === "FACULTY_VIEW"
+              ? "bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed"
+              : buttonState.state === "MANAGE_EVENT"
+              ? "bg-indigo-700 hover:bg-indigo-800 text-white"
+              : buttonState.state === "ADMIN_VIEW"
+              ? "bg-amber-600 hover:bg-amber-700 text-white"
+              : "bg-indigo-600 hover:bg-indigo-700 text-white"
+          }`}
         >
           <span>{buttonState.text}</span>
         </Button>

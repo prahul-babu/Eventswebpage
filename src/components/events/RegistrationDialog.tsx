@@ -55,7 +55,7 @@ export const RegistrationDialog: React.FC<RegistrationDialogProps> = ({
   onSuccess,
 }) => {
   const navigate = useNavigate();
-  const { firebaseUser, profile } = useAuth();
+  const { firebaseUser, profile, role } = useAuth();
   const createMutation = useCreateRegistration();
 
   const [teamMembersList, setTeamMembersList] = useState<TeamMember[]>([]);
@@ -99,6 +99,12 @@ export const RegistrationDialog: React.FC<RegistrationDialogProps> = ({
   };
 
   const onSubmit = async (data: CreateRegistrationFormValues) => {
+    const activeRole = profile?.role || role || (typeof window !== "undefined" ? (localStorage.getItem("apollo_user_role") as string) : "student");
+    if (activeRole === "faculty" || activeRole === "admin") {
+      onClose();
+      return;
+    }
+
     try {
       const payload = {
         ...data,

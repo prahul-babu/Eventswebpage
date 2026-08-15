@@ -146,6 +146,12 @@ export function useCreateRegistration() {
       const userSnap = await getDoc(userDocRef);
       const userData = userSnap.exists() ? userSnap.data() : null;
 
+      const userRole = (userData?.role ? String(userData.role).toLowerCase().trim() : null) || (typeof window !== "undefined" ? (localStorage.getItem("apollo_user_role") as string) : null) || "student";
+
+      if (userRole === "faculty" || userRole === "admin") {
+        throw new Error(`Event registration is restricted to students. ${userRole.toUpperCase()} accounts manage and oversee campus events.`);
+      }
+
       // Get event details from Firestore
       const eventDocRef = doc(db, "events", payload.eventId);
       const eventSnap = await getDoc(eventDocRef);
