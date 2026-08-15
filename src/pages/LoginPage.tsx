@@ -1,12 +1,7 @@
 import React, { useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import {
-  createUserWithEmailAndPassword,
-  updateProfile,
-  sendPasswordResetEmail,
-} from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { sendPasswordResetEmail } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 import { useAuth, getPostLoginRoute } from "@/lib/auth-context";
 import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
 import { Button } from "@/components/ui/button";
@@ -59,6 +54,7 @@ const FACULTY_DEPARTMENTS = [
 export const LoginPage: React.FC = () => {
   const {
     loginWithEmail,
+    signUpWithEmail,
     signInWithMicrosoft,
     isLoading,
     isAuthenticating,
@@ -267,43 +263,22 @@ export const LoginPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      // 1. Create User in Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        trimmedEmail,
-        signUpPassword
-      );
-      const user = userCredential.user;
-
-      // 2. Set Display Name in Firebase Auth
-      await updateProfile(user, { displayName: trimmedName });
-
-      // 3. Save User Profile in Cloud Firestore
-      await setDoc(
-        doc(db, "users", user.uid),
-        {
-          uid: user.uid,
-          email: trimmedEmail,
-          displayName: trimmedName,
-          name: trimmedName,
-          role: signUpRole,
-          status: "ACTIVE",
-          department: signUpRole === "student" ? signUpBranch : signUpFacultyDept,
-          rollNumber: signUpRole === "student" ? signUpRollNo.trim().toUpperCase() : undefined,
-          employeeId: signUpRole === "faculty" ? signUpEmpId.trim().toUpperCase() : undefined,
-          onboardingCompleted: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        { merge: true }
-      );
-
-      // 4. Immediately route user to their selected role portal
-      toast.success("Account Created Successfully!", {
-        description: `Welcome to Apollo Event Hub, ${trimmedName}! Signed in as ${signUpRole.toUpperCase()}.`,
+      // Register with authoritative role and write profile atomically
+      const { role, status } = await signUpWithEmail({
+        email: trimmedEmail,
+        password: signUpPassword,
+        displayName: trimmedName,
+        role: signUpRole,
+        department: signUpRole === "student" ? signUpBranch : signUpFacultyDept,
+        rollNumber: signUpRole === "student" ? signUpRollNo.trim().toUpperCase() : undefined,
+        employeeId: signUpRole === "faculty" ? signUpEmpId.trim().toUpperCase() : undefined,
       });
 
-      const destination = getPostLoginRoute(signUpRole, "ACTIVE");
+      toast.success("Account Created Successfully!", {
+        description: `Welcome to Apollo Event Hub, ${trimmedName}! Signed in as ${role.toUpperCase()}.`,
+      });
+
+      const destination = getPostLoginRoute(role, status);
       navigate(destination);
     } catch (err: any) {
       console.warn("[Auth] Sign Up error:", err.code, err.message);

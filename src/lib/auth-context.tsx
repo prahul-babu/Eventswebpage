@@ -13,6 +13,8 @@ import {
   signInWithRedirect,
   getRedirectResult,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
   signInAnonymously,
   signOut as firebaseSignOut,
   onAuthStateChanged,
@@ -90,6 +92,15 @@ export interface AuthContextValue {
     pass: string,
     selectedRole: UserRole
   ) => Promise<{ user: FirebaseUser; role: UserRole; status: UserStatus }>;
+  signUpWithEmail: (payload: {
+    email: string;
+    password: string;
+    displayName: string;
+    role: UserRole;
+    department: string;
+    rollNumber?: string;
+    employeeId?: string;
+  }) => Promise<{ user: FirebaseUser; role: UserRole; status: UserStatus }>;
   signInWithMicrosoft: () => Promise<void>;
   signInAsDevUser: (role: UserRole) => Promise<void>;
   signOut: () => Promise<void>;
@@ -345,7 +356,92 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setIsAuthenticating(false);
       }
     },
-    []
+    [persistUserRole]
+  );
+
+  /**
+   * DIRECT EMAIL / PASSWORD SIGN UP:
+   * 1. Pre-caches selected role in localStorage so frame-0 loaders and listeners recognize the role immediately
+   * 2. Creates user in Firebase Auth
+   * 3. Sets displayName in Firebase Auth profile
+   * 4. Writes authoritative role directly to Firestore users/{uid} BEFORE allowing any redirects
+   * 5. Updates React state and resolves cleanly to the selected role portal
+   */
+  const signUpWithEmail = useCallback(
+    async (payload: {
+      email: string;
+      password: string;
+      displayName: string;
+      role: UserRole;
+      department: string;
+      rollNumber?: string;
+      employeeId?: string;
+    }): Promise<{ user: FirebaseUser; role: UserRole; status: UserStatus }> => {
+      setIsAuthenticating(true);
+      setIsLoading(true);
+      setAuthError(null);
+
+      const trimmedEmail = payload.email.toLowerCase().trim();
+      const trimmedName = payload.displayName.trim();
+      const effRole: UserRole = (payload.role || "student").toLowerCase() as UserRole;
+      const effStatus: UserStatus = "ACTIVE";
+
+      // 1. Immediately cache the authoritative selected role
+      persistUserRole(effRole, effStatus);
+
+      try {
+        // 2. Create User in Firebase Auth
+        const userCredential = await createUserWithEmailAndPassword(
+          auth,
+          trimmedEmail,
+          payload.password
+        );
+        const user = userCredential.user;
+
+        // 3. Set display name in Firebase Auth
+        try {
+          await updateProfile(user, { displayName: trimmedName });
+        } catch (e) {
+          console.warn("[Auth] updateProfile notice:", e);
+        }
+
+        setFirebaseUser(user);
+
+        // 4. Construct complete authoritative profile
+        const userProfile: User = {
+          uid: user.uid,
+          email: user.email || trimmedEmail,
+          displayName: trimmedName || user.displayName || trimmedEmail.split("@")[0],
+          role: effRole,
+          status: effStatus,
+          department:
+            payload.department ||
+            (effRole === "faculty"
+              ? "Department of Computer Science & Engineering"
+              : "School of Technology"),
+          rollNumber: payload.rollNumber ? payload.rollNumber.trim().toUpperCase() : undefined,
+          employeeId: payload.employeeId ? payload.employeeId.trim().toUpperCase() : undefined,
+          onboardingCompleted: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        // 5. Write to Firestore users/{uid}
+        const userDocRef = doc(db, "users", user.uid);
+        await setDoc(userDocRef, userProfile, { merge: true });
+
+        // 6. Set state
+        setProfile(userProfile);
+        setClaims({ role: effRole, status: effStatus });
+        persistUserRole(effRole, effStatus);
+        setIsLoading(false);
+
+        return { user, role: effRole, status: effStatus };
+      } finally {
+        setIsAuthenticating(false);
+      }
+    },
+    [persistUserRole]
   );
 
   // Startup: Check for redirect result from Microsoft OAuth
@@ -402,8 +498,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         console.log("[AUTH-6] UID:", user.uid);
         console.log("[AUTH-7] Firestore profile loading: users/" + user.uid);
 
-        const fallbackRole: UserRole = "student";
-        const fallbackStatus: UserStatus = "ACTIVE";
+        const currentLocalRole = (localStorage.getItem("apollo_user_role") as UserRole) || cachedRole || "student";
+        const currentLocalStatus = (localStorage.getItem("apollo_user_status") as UserStatus) || cachedStatus || "ACTIVE";
+
+        const fallbackRole: UserRole = currentLocalRole;
+        const fallbackStatus: UserStatus = currentLocalStatus;
 
         const userDocRef = doc(db, "users", user.uid);
 
@@ -415,7 +514,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
               userData = docSnap.data();
               console.log("[AUTH-8] Firestore profile received", userData);
 
-              const parsedRole = (userData.role ? String(userData.role).toLowerCase() : "student") as UserRole;
+              const parsedRole = (userData.role ? String(userData.role).toLowerCase() : currentLocalRole) as UserRole;
               const rawStatus = (userData.status ? String(userData.status).toUpperCase() : "ACTIVE");
               const parsedStatus = (
                 rawStatus === "PENDING"
@@ -463,13 +562,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             } else {
               console.log("[AUTH-8] Firestore profile received: (None found by UID, checking by email)");
               
-              // Prevent duplicate conflicting roles: Check if email already has an authoritative role
               const currentUid = user.uid;
               const currentEmail = user.email || "";
               const emailKey = currentEmail.toLowerCase().trim();
-              let effectiveRole: UserRole = "student";
-              let effectiveStatus: UserStatus = "ACTIVE";
-              let effectiveDept = "School of Technology";
+              let effectiveRole: UserRole = currentLocalRole;
+              let effectiveStatus: UserStatus = currentLocalStatus;
+              let effectiveDept = effectiveRole === "faculty" ? "Department of Computer Science & Engineering" : "School of Technology";
               let effectiveName = user.displayName || currentEmail.split("@")[0] || "Campus Member";
               let effectiveRoll: string | undefined = undefined;
               let effectiveEmp: string | undefined = undefined;
@@ -478,8 +576,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 uid: currentUid,
                 email: currentEmail,
                 displayName: effectiveName,
-                role: fallbackRole,
-                status: fallbackStatus,
+                role: effectiveRole,
+                status: effectiveStatus,
                 department: effectiveDept,
                 onboardingCompleted: true,
                 createdAt: new Date(),
@@ -523,6 +621,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
                     setProfile(resolvedProfile);
                     setClaims({ role: effectiveRole, status: effectiveStatus });
+                    persistUserRole(effectiveRole, effectiveStatus);
                     setDoc(userDocRef, resolvedProfile, { merge: true }).catch(() => {});
                     setIsLoading(false);
                     setIsAuthenticating(false);
@@ -530,6 +629,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                   .catch(() => {
                     setProfile(fallbackProfile);
                     setClaims({ role: fallbackRole, status: fallbackStatus });
+                    persistUserRole(fallbackRole, fallbackStatus);
                     setDoc(userDocRef, fallbackProfile, { merge: true }).catch(() => {});
                     setIsLoading(false);
                     setIsAuthenticating(false);
@@ -537,6 +637,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
               } else {
                 setProfile(fallbackProfile);
                 setClaims({ role: fallbackRole, status: fallbackStatus });
+                persistUserRole(fallbackRole, fallbackStatus);
                 setDoc(userDocRef, fallbackProfile, { merge: true }).catch(() => {});
                 setIsLoading(false);
                 setIsAuthenticating(false);
@@ -776,6 +877,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     isAccountBlocked,
     authError,
     loginWithEmail,
+    signUpWithEmail,
     signInWithMicrosoft,
     signInAsDevUser,
     signOut,
