@@ -4,22 +4,10 @@ import { getFirestore, connectFirestoreEmulator, Firestore } from "firebase/fire
 import { getStorage, connectStorageEmulator, FirebaseStorage } from "firebase/storage";
 import { getFunctions, connectFunctionsEmulator, Functions } from "firebase/functions";
 
-// Dynamically match authDomain to the current host when on Firebase Hosting (web.app or firebaseapp.com)
-// to prevent cross-origin redirect storage partitioning issues.
-const getEffectiveAuthDomain = (): string => {
-  if (typeof window !== "undefined" && window.location.hostname) {
-    const host = window.location.host;
-    if (host.includes("web.app") || host.includes("firebaseapp.com")) {
-      return host;
-    }
-  }
-  return import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "theapolloeventhub.firebaseapp.com";
-};
-
 // Read Firebase Web Config from environment variables
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: getEffectiveAuthDomain(),
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "theapolloeventhub.firebaseapp.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
