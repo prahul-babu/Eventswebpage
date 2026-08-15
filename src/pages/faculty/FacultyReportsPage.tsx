@@ -22,11 +22,13 @@ import { EventReportStatus } from "@/types";
 import { toast } from "sonner";
 
 export const FacultyReportsPage: React.FC = () => {
-  const { firebaseUser } = useAuth();
+  const { firebaseUser, profile } = useAuth();
+  const currentUid = firebaseUser?.uid || profile?.uid;
+  const currentEmail = firebaseUser?.email || profile?.email;
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | EventReportStatus>("ALL");
 
-  const { data: reportItems, isLoading } = useFacultyReports(firebaseUser?.uid, firebaseUser?.email);
+  const { data: reportItems, isLoading } = useFacultyReports(currentUid, currentEmail);
 
   const filteredItems = (reportItems || []).filter((item) => {
     if (statusFilter !== "ALL" && item.reportStatus !== statusFilter) return false;
@@ -180,7 +182,7 @@ export const FacultyReportsPage: React.FC = () => {
                     </td>
                   </tr>
                 ) : filteredItems.length > 0 ? (
-                  filteredItems.map(({ event, reportStatus, report }) => (
+                  filteredItems.map(({ event, reportStatus, report, verifiedAttendance }) => (
                     <tr key={event.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="p-4">
                         <div className="font-bold text-slate-900 text-xs sm:text-sm max-w-[280px] truncate">
@@ -202,7 +204,7 @@ export const FacultyReportsPage: React.FC = () => {
                       </td>
 
                       <td className="p-4 whitespace-nowrap font-semibold text-slate-900">
-                        {event.registeredCount || 0} attendees
+                        {verifiedAttendance ?? event.registeredCount ?? 0} attendees
                       </td>
 
                       <td className="p-4 whitespace-nowrap">{getStatusBadge(reportStatus)}</td>

@@ -184,41 +184,71 @@ export function useEventReport(eventId?: string) {
 }
 
 /**
- * 2. Fetch Faculty Reports Hub (Completed Events + Report Status)
+ * 2. Fetch Faculty Reports Hub (Approved/Completed Events + Report Status)
  */
 export function useFacultyReports(facultyUid?: string | null, facultyEmail?: string | null) {
-  return useQuery<{ event: Event; reportStatus: EventReportStatus; report?: EventReport }[]>({
+  return useQuery<{ event: Event; reportStatus: EventReportStatus; report?: EventReport; verifiedAttendance?: number }[]>({
     queryKey: ["faculty", "reports", facultyUid, facultyEmail],
     queryFn: async () => {
+      const activeUid = (facultyUid || "").trim();
+      const activeEmail = (facultyEmail || "").toLowerCase().trim();
+
+      if (!activeUid && !activeEmail) return [];
+
       const eventsRef = getEventsCollection(db);
       const snap = await getDocs(eventsRef);
       const allEvents = snap.docs.map((d) => d.data());
 
-      const uid = (facultyUid || "").toLowerCase().trim();
-      const email = (facultyEmail || "").toLowerCase().trim();
-
-      const matched = allEvents.filter((e) => {
-        const eUid = (e.organiserId || "").toLowerCase().trim();
-        const eEmail = (e.organiserEmail || "").toLowerCase().trim();
-        if (uid && eUid === uid) return true;
-        if (email && eEmail === email) return true;
+      // 1. Must be owned by the currently logged-in faculty
+      const ownedEvents = allEvents.filter((e) => {
+        const cBy = (e.createdBy || (e as any).organiserId || "").trim();
+        const cEmail = (e.createdByEmail || (e as any).organiserEmail || "").toLowerCase().trim();
+        if (activeUid && cBy === activeUid) return true;
+        if (activeEmail && cEmail === activeEmail) return true;
         return false;
       });
 
-      const events = matched.length > 0 ? matched : allEvents;
+      // 2. Must satisfy the approved/completed event lifecycle requirement
+      // DRAFT, PENDING_APPROVAL, REJECTED, and CANCELLED events must NEVER appear in Reports.
+      const eligibleEvents = ownedEvents.filter((e) => {
+        const status = (e.status || "").toUpperCase();
+        return status === "PUBLISHED" || status === "COMPLETED" || status === "ONGOING";
+      });
 
-      const result: { event: Event; reportStatus: EventReportStatus; report?: EventReport }[] = [];
+      const result: { event: Event; reportStatus: EventReportStatus; report?: EventReport; verifiedAttendance?: number }[] = [];
 
-      for (const event of events) {
-        const reportRef = getEventReportDoc(db, event.id);
-        const reportSnap = await getDoc(reportRef);
-        const report = reportSnap.exists() ? reportSnap.data() : undefined;
+      for (const event of eligibleEvents) {
+        let report: EventReport | undefined = undefined;
+        try {
+          const reportRef = getEventReportDoc(db, event.id);
+          const reportSnap = await getDoc(reportRef);
+          if (reportSnap.exists()) {
+            report = reportSnap.data();
+          }
+        } catch {}
+
         const reportStatus: EventReportStatus = report?.status || "NOT_STARTED";
+
+        // Query verified attendance from registrations
+        let verifiedCount = event.registeredCount || 0;
+        try {
+          const regsSnap = await getDocs(
+            query(collection(db, "registrations"), where("eventId", "==", event.id))
+          );
+          const attended = regsSnap.docs.filter((d) => {
+            const reg = d.data();
+            return reg.checkedIn === true || reg.status === "ATTENDED";
+          });
+          if (attended.length > 0) {
+            verifiedCount = attended.length;
+          }
+        } catch {}
 
         result.push({
           event,
           reportStatus,
           report,
+          verifiedAttendance: verifiedCount,
         });
       }
 
@@ -228,7 +258,7 @@ export function useFacultyReports(facultyUid?: string | null, facultyEmail?: str
         return timeB - timeA;
       });
     },
-    staleTime: 1000 * 60,
+    staleTime: 1000 * 30,
   });
 }
 
