@@ -176,7 +176,7 @@ export function useCreateRegistration() {
         status: (requiresPayment ? "PENDING_PAYMENT" : "CONFIRMED") as RegistrationStatus,
         ticketCode,
         qrCodePayload: qrPayload,
-        teamName: payload.teamName || undefined,
+        teamName: payload.teamName || "",
         teamMembers: payload.teamMembers || [],
         answers: payload.answers || {},
         isPaid: !requiresPayment,
@@ -187,9 +187,14 @@ export function useCreateRegistration() {
         updatedAt: new Date(),
       };
 
+      // Strip any potential undefined values so Firestore never rejects the payload
+      const cleanedRegistration = Object.fromEntries(
+        Object.entries(newRegistration).filter(([_, v]) => v !== undefined)
+      );
+
       // Save registration directly to Firestore
       const regDocRef = doc(db, "registrations", regId);
-      await setDoc(regDocRef, newRegistration);
+      await setDoc(regDocRef, cleanedRegistration);
 
       // Increment registeredCount on the event
       if (!requiresPayment) {

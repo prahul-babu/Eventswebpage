@@ -3,13 +3,13 @@ import {
   getDocs,
   getDoc,
   setDoc,
+  doc,
   query,
   where,
   orderBy,
   limit,
 } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
-import { db, functions } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import {
   getEventReportDoc,
   getEventReportsCollection,
@@ -76,6 +76,17 @@ export function useFacultyReports(facultyUid?: string | null) {
     },
     staleTime: 1000 * 60,
   });
+}
+
+function cleanForFirestore<T>(data: T): T {
+  return JSON.parse(
+    JSON.stringify(data, (_key, value) => {
+      if (value === undefined) {
+        return null;
+      }
+      return value;
+    })
+  );
 }
 
 /**
@@ -157,7 +168,7 @@ export function useSaveReportDraft() {
           createdAt: now,
           updatedAt: now,
         };
-        await setDoc(reportDocRef, initialReport);
+        await setDoc(reportDocRef, cleanForFirestore(initialReport));
       } else {
         const existing = snap.data();
         const updated: EventReport = {
@@ -165,7 +176,7 @@ export function useSaveReportDraft() {
           ...reportData,
           updatedAt: now,
         } as EventReport;
-        await setDoc(reportDocRef, updated, { merge: true });
+        await setDoc(reportDocRef, cleanForFirestore(updated), { merge: true });
       }
 
       return { success: true, eventId };
@@ -178,19 +189,43 @@ export function useSaveReportDraft() {
 }
 
 /**
- * 4. Submit Event Report Mutation (Calls Cloud Function)
+ * 4. Submit Event Report Mutation (Direct Firestore Update)
  */
 export function useSubmitEventReport() {
   const queryClient = useQueryClient();
 
   return useMutation<{ success: boolean; eventId: string; status: string }, Error, { eventId: string }>({
     mutationFn: async (payload) => {
-      const submitFn = httpsCallable<typeof payload, { success: boolean; eventId: string; status: string }>(
-        functions,
-        "submitEventReport"
+      const now = new Date();
+      const reportDocRef = doc(db, "event_reports", payload.eventId);
+      
+      // Update report status to SUBMITTED
+      await setDoc(
+        reportDocRef,
+        {
+          status: "SUBMITTED",
+          submittedAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
       );
-      const result = await submitFn(payload);
-      return result.data;
+
+      // Update event reportStatus
+      const eventDocRef = doc(db, "events", payload.eventId);
+      await setDoc(
+        eventDocRef,
+        {
+          reportStatus: "SUBMITTED",
+          updatedAt: now,
+        },
+        { merge: true }
+      ).catch(() => {});
+
+      return {
+        success: true,
+        eventId: payload.eventId,
+        status: "SUBMITTED",
+      };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["report", data.eventId] });
@@ -209,7 +244,7 @@ export function useSubmitEventReport() {
 }
 
 /**
- * 5. Review Event Report Mutation (Calls Cloud Function)
+ * 5. Review Event Report Mutation (Direct Firestore Update)
  */
 export function useReviewEventReport() {
   const queryClient = useQueryClient();
@@ -220,12 +255,37 @@ export function useReviewEventReport() {
     { eventId: string; decision: "APPROVED" | "CHANGES_REQUESTED"; feedback?: string }
   >({
     mutationFn: async (payload) => {
-      const reviewFn = httpsCallable<typeof payload, { success: boolean; eventId: string; status: string; decision: string }>(
-        functions,
-        "reviewEventReport"
+      const now = new Date();
+      const newStatus = payload.decision === "APPROVED" ? "APPROVED" : "REVISIONS_REQUESTED";
+      const reportDocRef = doc(db, "event_reports", payload.eventId);
+
+      await setDoc(
+        reportDocRef,
+        {
+          status: newStatus,
+          reviewedAt: now,
+          reviewerFeedback: payload.feedback || null,
+          updatedAt: now,
+        },
+        { merge: true }
       );
-      const result = await reviewFn(payload);
-      return result.data;
+
+      const eventDocRef = doc(db, "events", payload.eventId);
+      await setDoc(
+        eventDocRef,
+        {
+          reportStatus: newStatus,
+          updatedAt: now,
+        },
+        { merge: true }
+      ).catch(() => {});
+
+      return {
+        success: true,
+        eventId: payload.eventId,
+        status: newStatus,
+        decision: payload.decision,
+      };
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["report", data.eventId] });
