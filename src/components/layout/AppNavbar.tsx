@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, Building2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { ROLE_NAVIGATION, getRoleHomeHref } from "@/components/layout/nav-config";
@@ -8,10 +8,12 @@ import { NotificationBell } from "@/components/layout/NotificationBell";
 import { ProfileDropdown } from "@/components/layout/ProfileDropdown";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 export const AppNavbar: React.FC = () => {
-  const { role, isAuthenticated } = useAuth();
+  const { role, isAuthenticated, switchRole } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const { data: pendingEvents } = usePendingApprovals();
@@ -27,23 +29,66 @@ export const AppNavbar: React.FC = () => {
     return location.pathname.startsWith(href);
   };
 
+  const handlePortalSwitch = async (targetRole: "student" | "faculty" | "admin", path: string) => {
+    try {
+      await switchRole(targetRole);
+      toast.success(`Switched to ${targetRole.toUpperCase()} Portal`, {
+        description: `Now viewing workspace as ${targetRole}.`,
+      });
+      navigate(path);
+    } catch {
+      // Handled in auth-context
+    }
+  };
+
   return (
     <>
       {/* Top University Ribbon */}
       <div className="bg-[#004D61] text-cyan-100 text-xs py-1.5 px-4 text-center font-medium tracking-wide flex items-center justify-between border-b border-[#003847]">
-        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <Building2 className="w-3.5 h-3.5 text-[#F5A623] shrink-0" />
-            <span className="font-semibold text-white">The Apollo University</span>
+            <span className="font-semibold text-white truncate">The Apollo University</span>
             <span className="text-cyan-300 hidden sm:inline">&bull; School of Technology (B.Tech)</span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-cyan-200 hidden md:inline">Admissions Helpline: +91 7995574330</span>
-            {role && (
-              <span className="bg-[#F5A623] text-slate-900 text-[10px] font-bold py-0.5 px-2 rounded-full uppercase tracking-wider">
-                {role} Portal
-              </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {isAuthenticated && (
+              <div className="flex items-center gap-1 bg-black/20 p-0.5 rounded-lg border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => handlePortalSwitch("student", "/")}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                    role === "student"
+                      ? "bg-[#F5A623] text-slate-950 shadow-xs"
+                      : "text-cyan-100 hover:text-white hover:bg-white/10"
+                  }`}
+                >
+                  Student
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePortalSwitch("faculty", "/faculty")}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                    role === "faculty"
+                      ? "bg-[#F5A623] text-slate-950 shadow-xs"
+                      : "text-cyan-100 hover:text-white hover:bg-white/10"
+                  }`}
+                >
+                  Faculty
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePortalSwitch("admin", "/admin")}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                    role === "admin"
+                      ? "bg-[#F5A623] text-slate-950 shadow-xs"
+                      : "text-cyan-100 hover:text-white hover:bg-white/10"
+                  }`}
+                >
+                  Admin
+                </button>
+              </div>
             )}
           </div>
         </div>

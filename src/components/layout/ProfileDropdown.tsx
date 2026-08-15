@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,11 +20,15 @@ import {
   LogOut,
   ChevronDown,
   Bell,
+  GraduationCap,
+  Briefcase,
 } from "lucide-react";
 import type { UserRole } from "@/types";
+import { toast } from "sonner";
 
 export const ProfileDropdown: React.FC = () => {
-  const { firebaseUser, profile, role, status, signOut } = useAuth();
+  const { firebaseUser, profile, role, status, signOut, switchRole } = useAuth();
+  const navigate = useNavigate();
 
   if (!firebaseUser) {
     return null;
@@ -162,6 +166,62 @@ export const ProfileDropdown: React.FC = () => {
               <span>Help &amp; Knowledge Base</span>
             </Link>
           </DropdownMenuItem>
+        </div>
+
+        <DropdownMenuSeparator />
+
+        {/* Portal Switcher */}
+        <div className="p-1 space-y-0.5 text-xs">
+          <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            Switch Campus Portal
+          </div>
+          {role !== "faculty" && (
+            <DropdownMenuItem
+              onClick={async () => {
+                await switchRole("faculty");
+                toast.success("Switched to Faculty Portal", {
+                  description: "You now have organiser & faculty privileges.",
+                });
+                navigate("/faculty");
+              }}
+              className="cursor-pointer text-[#007A99] font-medium"
+            >
+              <Briefcase className="mr-2 h-4 w-4 text-[#007A99]" />
+              <span>Switch to Faculty Portal</span>
+            </DropdownMenuItem>
+          )}
+
+          {role !== "student" && (
+            <DropdownMenuItem
+              onClick={async () => {
+                await switchRole("student");
+                toast.success("Switched to Student Portal", {
+                  description: "Viewing campus as a Student.",
+                });
+                navigate("/");
+              }}
+              className="cursor-pointer text-slate-700 font-medium"
+            >
+              <GraduationCap className="mr-2 h-4 w-4 text-slate-500" />
+              <span>Switch to Student Portal</span>
+            </DropdownMenuItem>
+          )}
+
+          {role !== "admin" && (
+            <DropdownMenuItem
+              onClick={async () => {
+                await switchRole("admin");
+                toast.success("Switched to Admin Portal", {
+                  description: "Institutional administrative console active.",
+                });
+                navigate("/admin");
+              }}
+              className="cursor-pointer text-amber-700 font-medium"
+            >
+              <ShieldCheck className="mr-2 h-4 w-4 text-amber-600" />
+              <span>Switch to Admin Portal</span>
+            </DropdownMenuItem>
+          )}
         </div>
 
         <DropdownMenuSeparator />

@@ -98,6 +98,7 @@ export interface AuthContextValue {
     payload: RequestAccessPayload
   ) => Promise<{ success: boolean; status: string }>;
   assignUserRole: (payload: SetUserRolePayload) => Promise<{ success: boolean }>;
+  switchRole: (newRole: UserRole) => Promise<void>;
   clearAuthError: () => void;
 }
 
@@ -678,6 +679,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // Resolving is true while initial auth is checking or while active user's Firestore profile is still loading
   const isAuthResolving = isLoading || (hasActiveUser && !profile);
 
+  const switchRole = useCallback(async (newRole: UserRole) => {
+    const user = auth.currentUser || firebaseUser;
+    if (!user) return;
+    setIsLoading(true);
+    try {
+      const targetStatus: UserStatus = "ACTIVE";
+      const userDocRef = doc(db, "users", user.uid);
+      const updatedProfile: Partial<User> = {
+        role: newRole,
+        status: targetStatus,
+        department:
+          newRole === "admin"
+            ? "Institutional Administration"
+            : newRole === "faculty"
+            ? "Department of Computer Science & Engineering"
+            : "School of Technology",
+        updatedAt: new Date(),
+      };
+      await setDoc(userDocRef, updatedProfile, { merge: true });
+      setClaims({ role: newRole, status: targetStatus });
+      setProfile((prev) => (prev ? { ...prev, ...updatedProfile } : null));
+    } catch (err: any) {
+      console.error("[Auth] switchRole error:", err);
+      toast.error("Failed to switch portal", { description: err.message });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [firebaseUser]);
+
   const value: AuthContextValue = {
     firebaseUser,
     claims,
@@ -700,6 +730,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     resolveUserState,
     submitAccessRequest,
     assignUserRole,
+    switchRole,
     clearAuthError,
   };
 
