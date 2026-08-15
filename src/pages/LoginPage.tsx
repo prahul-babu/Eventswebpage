@@ -63,7 +63,6 @@ export const LoginPage: React.FC = () => {
     isLoading,
     isAuthenticating,
     isAuthenticated,
-    firebaseUser,
     role: currentRole,
     status: currentStatus,
     authError,
@@ -99,13 +98,13 @@ export const LoginPage: React.FC = () => {
   const [signUpError, setSignUpError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // While checking initial session, show loading screen
-  if (isLoading) {
+  // While checking session or loading profile from Firestore, show loading screen
+  if (isLoading || isAuthenticating) {
     return <AuthLoadingScreen />;
   }
 
-  // If already authenticated, redirect to destination portal
-  if (isAuthenticated || Boolean(firebaseUser) || Boolean(auth.currentUser)) {
+  // If already authenticated and profile is resolved, redirect to destination portal
+  if (isAuthenticated && (currentRole || currentStatus)) {
     return <Navigate to={getPostLoginRoute(currentRole, currentStatus)} replace />;
   }
 

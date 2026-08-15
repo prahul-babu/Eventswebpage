@@ -24,16 +24,10 @@ export const RequireAuth: React.FC<RequireAuthProps> = ({ children, allowedRoles
 
   // 2. Redirect unauthenticated users to /login ONLY after auth loading is complete and user does not exist
   if (!isAuthed) {
-    console.error("LOGIN REDIRECT TRIGGERED", {
+    console.error("🚨 REDIRECTING TO LOGIN", {
+      uid: auth.currentUser?.uid || null,
+      email: auth.currentUser?.email || null,
       reason: "Unauthenticated access on protected route: " + location.pathname,
-      uid: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-    });
-    console.error("WHY LOGIN:", {
-      uid: firebaseUser?.uid || auth.currentUser?.uid,
-      email: firebaseUser?.email || auth.currentUser?.email,
-      role: role,
-      status: status,
     });
     return <Navigate to="/login" state={{ from: location }} replace />;
   }

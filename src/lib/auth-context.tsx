@@ -432,7 +432,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        console.log("AUTH USER:", user?.uid, user?.email);
+        console.log("=== AUTH STATE ===");
+        console.log("Firebase user:", user);
+        console.log("UID:", user?.uid);
+        console.log("Email:", user?.email);
+
         setFirebaseUser(user);
 
         const lowerEmail = (user.email || "").toLowerCase();
@@ -463,9 +467,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             let userData: any = null;
             if (docSnap.exists()) {
               userData = docSnap.data();
-              console.log("USER DOCUMENT:", userData);
-              console.log("ROLE:", userData?.role);
-              console.log("STATUS:", userData?.status);
+              console.log("=== FIRESTORE PROFILE ===");
+              console.log("User data:", userData);
+              console.log("Role:", userData?.role);
+              console.log("Status:", userData?.status);
 
               const parsedRole = (userData.role || fallbackRole).toLowerCase() as UserRole;
               const rawStatus = (userData.status || "ACTIVE").toUpperCase();
@@ -508,9 +513,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 status: parsedStatus,
               });
             } else {
-              console.log("USER DOCUMENT: (None found, auto-creating for UID)", user.uid);
-              console.log("ROLE:", fallbackRole);
-              console.log("STATUS:", fallbackStatus);
+              console.log("=== FIRESTORE PROFILE ===");
+              console.log("User data: (None found, auto-creating for UID)", user.uid);
+              console.log("Role:", fallbackRole);
+              console.log("Status:", fallbackStatus);
 
               const fallbackProfile: User = {
                 uid: user.uid,
@@ -542,10 +548,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           }
         );
       } else {
-        console.log("AUTH USER: (null)");
-        console.log("USER DOCUMENT: (null)");
-        console.log("ROLE: (null)");
-        console.log("STATUS: (null)");
+        console.log("=== AUTH STATE ===");
+        console.log("Firebase user: (null)");
+        console.log("UID: (null)");
+        console.log("Email: (null)");
         setFirebaseUser(null);
         setClaims(null);
         setProfile(null);
@@ -585,7 +591,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const userCredential = await signInWithPopup(auth, provider);
       const user = userCredential.user;
 
-      console.log("AUTH USER:", user?.uid, user?.email);
+      console.log("=== AUTH STATE ===");
+      console.log("Firebase user:", user);
+      console.log("UID:", user?.uid);
+      console.log("Email:", user?.email);
+
       setFirebaseUser(user);
 
       // Read Firestore: users/{user.uid} (Doc ID is user.uid)
@@ -600,9 +610,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         console.warn("[Auth] Firestore read error:", e);
       }
 
-      console.log("USER DOCUMENT:", userData);
-      console.log("ROLE:", userData?.role);
-      console.log("STATUS:", userData?.status);
+      console.log("=== FIRESTORE PROFILE ===");
+      console.log("User data:", userData);
+      console.log("Role:", userData?.role);
+      console.log("Status:", userData?.status);
 
       const lowerEmail = (user.email || "").toLowerCase();
       let effectiveRole: UserRole = "student";
@@ -793,10 +804,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   const hasActiveUser = Boolean(firebaseUser || auth.currentUser);
-  const effectiveRole =
-    claims?.role || profile?.role || (hasActiveUser ? "student" : null);
-  const effectiveStatus =
-    claims?.status || profile?.status || (hasActiveUser ? "ACTIVE" : null);
+  const effectiveRole = claims?.role || profile?.role || null;
+  const effectiveStatus = claims?.status || profile?.status || null;
 
   const isAuthenticated = hasActiveUser;
   const isAccountActive = effectiveStatus === "ACTIVE";
@@ -805,13 +814,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     effectiveStatus === "SUSPENDED" || effectiveStatus === "REJECTED";
   const isOnboardingRequired = false;
 
+  // Resolving is true while initial auth is checking or while active user's Firestore profile is still loading
+  const isAuthResolving = isLoading || (hasActiveUser && !profile);
+
   const value: AuthContextValue = {
     firebaseUser,
     claims,
     profile,
     role: effectiveRole,
     status: effectiveStatus,
-    isLoading,
+    isLoading: isAuthResolving,
     isAuthenticating,
     isAuthenticated,
     isOnboardingRequired,
