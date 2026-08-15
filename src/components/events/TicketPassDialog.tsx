@@ -1,5 +1,5 @@
 import React from "react";
-import { format } from "date-fns";
+import { safeFormatDate } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +32,9 @@ export const TicketPassDialog: React.FC<TicketPassDialogProps> = ({
   };
 
   const isCheckedIn = registration.checkedIn;
+
+  const formattedDate = safeFormatDate(event.startAt, "MMM d, yyyy");
+  const formattedTime = safeFormatDate(event.startAt, "h:mm a");
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -104,7 +107,7 @@ export const TicketPassDialog: React.FC<TicketPassDialogProps> = ({
             <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
               <span className="text-slate-500">Date & Time:</span>
               <span className="font-medium text-slate-800">
-                {event.startAt ? `${format(new Date(event.startAt), "MMM d, yyyy")} • ${format(new Date(event.startAt), "h:mm a")}` : "Date TBA"}
+                {event.startAt ? `${formattedDate} • ${formattedTime}` : "Date TBA"}
               </span>
             </div>
             <div className="flex justify-between items-center">
