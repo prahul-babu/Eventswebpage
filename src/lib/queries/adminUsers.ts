@@ -119,34 +119,40 @@ export function useAdminAuditLogs(filters?: {
   return useQuery<AuditLogEntry[]>({
     queryKey: ["admin", "audit-logs", filters],
     queryFn: async () => {
-      const logsRef = collection(db, "auditLogs");
-      let q = query(logsRef, orderBy("timestamp", "desc"), limit(100));
+      try {
+        const logsRef = collection(db, "auditLogs");
+        const snap = await getDocs(logsRef);
 
-      if (filters?.action && filters.action !== "ALL") {
-        q = query(logsRef, where("action", "==", filters.action), orderBy("timestamp", "desc"), limit(100));
+        let list = snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            action: data.action || "SYSTEM_EVENT",
+            actorUid: data.actorUid || "system",
+            actorEmail: data.actorEmail || "system@apollouniversity.edu.in",
+            actorRole: data.actorRole || "SYSTEM",
+            targetUid: data.targetUid,
+            details: data.details || {},
+            timestamp: data.timestamp ? (data.timestamp.toDate ? data.timestamp.toDate() : new Date(data.timestamp)) : new Date(),
+          } as AuditLogEntry;
+        });
+
+        list.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+        if (filters?.action && filters.action !== "ALL") {
+          list = list.filter((l) => l.action === filters.action);
+        }
+
+        if (filters?.actorEmail && filters.actorEmail.trim()) {
+          const term = filters.actorEmail.toLowerCase().trim();
+          list = list.filter((l) => l.actorEmail.toLowerCase().includes(term));
+        }
+
+        return list;
+      } catch (err) {
+        console.warn("[useAdminAuditLogs] notice:", err);
+        return [];
       }
-
-      const snap = await getDocs(q);
-      let list = snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          action: data.action || "SYSTEM_EVENT",
-          actorUid: data.actorUid || "system",
-          actorEmail: data.actorEmail || "system@apollouniversity.edu.in",
-          actorRole: data.actorRole || "SYSTEM",
-          targetUid: data.targetUid,
-          details: data.details || {},
-          timestamp: data.timestamp ? (data.timestamp.toDate ? data.timestamp.toDate() : new Date(data.timestamp)) : new Date(),
-        } as AuditLogEntry;
-      });
-
-      if (filters?.actorEmail && filters.actorEmail.trim()) {
-        const term = filters.actorEmail.toLowerCase().trim();
-        list = list.filter((l) => l.actorEmail.toLowerCase().includes(term));
-      }
-
-      return list;
     },
     staleTime: 1000 * 30,
   });

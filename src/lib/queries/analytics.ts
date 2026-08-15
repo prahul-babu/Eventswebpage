@@ -6,7 +6,6 @@ import {
   getDocs,
   doc,
   getDoc,
-  orderBy,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { format, differenceInHours } from "date-fns";
@@ -270,7 +269,7 @@ export function useAdminPlatformAnalytics() {
     queryFn: async (): Promise<AdminPlatformAnalytics> => {
       // Fetch live events, registrations, and users for analytics
       const [eventsSnap, regsSnap, usersSnap] = await Promise.all([
-        getDocs(query(collection(db, "events"), orderBy("createdAt", "desc"))),
+        getDocs(collection(db, "events")),
         getDocs(collection(db, "registrations")),
         getDocs(collection(db, "users")),
       ]);

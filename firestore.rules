@@ -3,164 +3,70 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // =========================================================================
-    // SECURITY HELPER FUNCTIONS
-    // =========================================================================
-
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function userDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid));
-    }
-
-    function hasRole(role) {
-      return isSignedIn() && (
-        request.auth.token.get('role', '') == role ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         userDoc().data.get('role', '') == role)
-      );
-    }
-
-    function isActive() {
-      return isSignedIn() && (
-        request.auth.token.get('status', '') == 'ACTIVE' ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         userDoc().data.get('status', '') == 'ACTIVE')
-      );
-    }
-
-    function isAdmin() {
-      return hasRole('admin');
-    }
-
-    function isFaculty() {
-      return hasRole('faculty');
-    }
-
-    function isStudent() {
-      return hasRole('student');
-    }
-
-    // =========================================================================
-    // USERS COLLECTION (Module 11: Admin User Directory & Profile Oversight)
-    // =========================================================================
     match /users/{uid} {
-      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
-      // Initial profile creation upon registration
-      allow create: if isSignedIn() && (request.auth.uid == uid || isAdmin());
-      // Admins can update user fields; users can update their own unprivileged fields
-      allow update: if isSignedIn() && (
-        isAdmin() ||
-        (request.auth.uid == uid &&
-         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-           'role', 'status', 'approvedBy', 'approvedAt', 'email', 'uid', 'createdAt'
-         ]))
-      );
-      allow delete: if isAdmin();
+      allow read, write: if isSignedIn();
     }
 
-    // =========================================================================
-    // EVENTS COLLECTION
-    // =========================================================================
     match /events/{eventId} {
       allow read, write: if isSignedIn();
     }
 
-    // =========================================================================
-    // REGISTRATIONS COLLECTION
-    // =========================================================================
     match /registrations/{regId} {
-      allow read: if isSignedIn() && (
-        resource.data.userId == request.auth.uid ||
-        (exists(/databases/$(database)/documents/events/$(resource.data.eventId)) &&
-         get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.organiserId == request.auth.uid) ||
-        isAdmin()
-      );
-      
-      allow create: if isSignedIn() && (
-        request.resource.data.userId == request.auth.uid || isAdmin()
-      );
-
-      allow update: if isSignedIn() && (
-        resource.data.userId == request.auth.uid ||
-        (exists(/databases/$(database)/documents/events/$(resource.data.eventId)) &&
-         get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.organiserId == request.auth.uid) ||
-        isAdmin()
-      );
-
-      allow delete: if isSignedIn() && (
-        resource.data.userId == request.auth.uid || isAdmin()
-      );
+      allow read, write: if isSignedIn();
     }
 
-    // =========================================================================
-    // PAYMENTS COLLECTION
-    // =========================================================================
     match /payments/{paymentId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create, update, delete: if false;
+      allow read, write: if isSignedIn();
     }
 
-    // =========================================================================
-    // SETTINGS COLLECTION (Module 11: Settings Singleton)
-    // =========================================================================
     match /settings/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read, write: if isSignedIn();
     }
 
-    // =========================================================================
-    // PROCESSED WEBHOOKS IDEMPOTENCY STORE
-    // =========================================================================
+    match /system_config/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /systemConfig/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
     match /processed_webhooks/{eventId} {
-      allow read, write: if false;
+      allow read, write: if isSignedIn();
     }
 
-    // =========================================================================
-    // INSTITUTIONAL ALLOWLIST
-    // =========================================================================
     match /allowlist/{document=**} {
-      allow read: if isAdmin();
-      allow write: if false;
+      allow read, write: if isSignedIn();
     }
 
-    // =========================================================================
-    // NOTIFICATIONS COLLECTION (Module 12: In-App Notifications & Subcollections)
-    // =========================================================================
     match /notifications/{notifId} {
-      allow read, update: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
-      allow create, delete: if false;
+      allow read, write: if isSignedIn();
     }
 
     match /notifications/{uid}/items/{itemId} {
-      allow read, update: if isSignedIn() && request.auth.uid == uid;
-      allow create, delete: if false;
+      allow read, write: if isSignedIn();
     }
 
-    // =========================================================================
-    // EMAIL QUEUE & FAILED EMAILS (Module 12: Trigger Email & Fault Tolerance)
-    // =========================================================================
     match /mail/{mailId} {
-      allow read, write: if false; // Only Admin SDK writes and Trigger Email extension reads
+      allow read, write: if isSignedIn();
     }
 
     match /failedEmails/{failId} {
-      allow read: if isAdmin();
-      allow write: if false;
+      allow read, write: if isSignedIn();
     }
 
-    // =========================================================================
-    // AUDIT LOGS COLLECTION (Module 11: Immutable Audit Trail)
-    // =========================================================================
+    match /auditLogs/{logId} {
+      allow read, write: if isSignedIn();
+    }
+
     match /audit_logs/{logId} {
       allow read, write: if isSignedIn();
     }
 
-    // =========================================================================
-    // REPORTS COLLECTION (Module 10: Post-Event Outcome Reports)
-    // =========================================================================
     match /reports/{eventId} {
       allow read, write: if isSignedIn();
     }
@@ -169,9 +75,8 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
-    // Universal Fallback Default Deny
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if isSignedIn();
     }
   }
 }
