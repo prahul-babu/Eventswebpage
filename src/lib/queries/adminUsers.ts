@@ -5,6 +5,7 @@ import {
   getDocs,
   getDoc,
   setDoc,
+  deleteDoc,
   query,
   where,
   orderBy,
@@ -52,7 +53,24 @@ export function useAdminDashboardMetrics() {
     queryKey: ["admin", "dashboard-metrics"],
     queryFn: async () => {
       const usersSnap = await getDocs(getUsersCollection(db));
-      const allUsers = usersSnap.docs.map((d) => d.data());
+      const rawUsers = usersSnap.docs.map((d) => d.data());
+
+      // Deduplicate by email so metrics reflect unique members
+      const emailMap = new Map<string, User>();
+      for (const u of rawUsers) {
+        const emailKey = (u.email || "").toLowerCase().trim();
+        if (!emailKey) continue;
+        const existing = emailMap.get(emailKey);
+        if (!existing) {
+          emailMap.set(emailKey, u);
+        } else {
+          const getScore = (role?: string) => (role === "admin" ? 3 : role === "faculty" ? 2 : 1);
+          if (getScore(u.role) > getScore(existing.role)) {
+            emailMap.set(emailKey, u);
+          }
+        }
+      }
+      const allUsers = Array.from(emailMap.values());
 
       const studentsCount = allUsers.filter((u) => u.role === "student" && u.status === "ACTIVE").length;
       const facultyCount = allUsers.filter((u) => u.role === "faculty" && u.status === "ACTIVE").length;
@@ -101,30 +119,30 @@ export function useAdminAuditLogs(filters?: {
   return useQuery<AuditLogEntry[]>({
     queryKey: ["admin", "audit-logs", filters],
     queryFn: async () => {
-      const logsRef = collection(db, "audit_logs");
-      const q = query(logsRef, orderBy("timestamp", "desc"), limit(100));
-      const snap = await getDocs(q);
+      const logsRef = collection(db, "auditLogs");
+      let q = query(logsRef, orderBy("timestamp", "desc"), limit(100));
 
-      let list: AuditLogEntry[] = snap.docs.map((d) => {
+      if (filters?.action && filters.action !== "ALL") {
+        q = query(logsRef, where("action", "==", filters.action), orderBy("timestamp", "desc"), limit(100));
+      }
+
+      const snap = await getDocs(q);
+      let list = snap.docs.map((d) => {
         const data = d.data();
         return {
           id: d.id,
           action: data.action || "SYSTEM_EVENT",
-          actorUid: data.actorUid || "",
-          actorEmail: data.actorEmail || "system@apollo.edu.in",
-          actorRole: data.actorRole || "system",
+          actorUid: data.actorUid || "system",
+          actorEmail: data.actorEmail || "system@apollouniversity.edu.in",
+          actorRole: data.actorRole || "SYSTEM",
           targetUid: data.targetUid,
-          details: data.details,
-          timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : new Date(),
-        };
+          details: data.details || {},
+          timestamp: data.timestamp ? (data.timestamp.toDate ? data.timestamp.toDate() : new Date(data.timestamp)) : new Date(),
+        } as AuditLogEntry;
       });
 
-      if (filters?.action && filters.action !== "ALL") {
-        list = list.filter((l) => l.action === filters.action);
-      }
-
       if (filters?.actorEmail && filters.actorEmail.trim()) {
-        const term = filters.actorEmail.trim().toLowerCase();
+        const term = filters.actorEmail.toLowerCase().trim();
         list = list.filter((l) => l.actorEmail.toLowerCase().includes(term));
       }
 
@@ -151,7 +169,7 @@ export function usePendingAccessRequests() {
 }
 
 /**
- * 4. User Directory Query with Filters & Search
+ * 4. User Directory Query with Email Deduplication & Single Authority Rule
  */
 export function useAdminUsersDirectory(filters?: {
   searchQuery?: string;
@@ -163,10 +181,38 @@ export function useAdminUsersDirectory(filters?: {
     queryKey: ["admin", "users-directory", filters],
     queryFn: async () => {
       const usersRef = getUsersCollection(db);
-      const q = query(usersRef, orderBy("createdAt", "desc"), limit(200));
+      const q = query(usersRef, orderBy("createdAt", "desc"), limit(300));
       const snap = await getDocs(q);
 
-      let list = snap.docs.map((d) => d.data());
+      const rawUsers = snap.docs.map((d) => d.data());
+
+      // Deduplicate by email: 1 Email = 1 Unique Account in Directory
+      // Priority rule: admin (3) > faculty (2) > student (1)
+      const emailMap = new Map<string, User>();
+      for (const u of rawUsers) {
+        const emailKey = (u.email || "").toLowerCase().trim();
+        if (!emailKey) continue;
+        const existing = emailMap.get(emailKey);
+        if (!existing) {
+          emailMap.set(emailKey, u);
+        } else {
+          const getScore = (role?: string) => (role === "admin" ? 3 : role === "faculty" ? 2 : 1);
+          const scoreCurrent = getScore(u.role);
+          const scoreExisting = getScore(existing.role);
+          if (scoreCurrent > scoreExisting) {
+            emailMap.set(emailKey, u);
+          } else if (
+            scoreCurrent === scoreExisting &&
+            u.createdAt &&
+            existing.createdAt &&
+            new Date(u.createdAt) > new Date(existing.createdAt)
+          ) {
+            emailMap.set(emailKey, u);
+          }
+        }
+      }
+
+      let list = Array.from(emailMap.values());
 
       if (filters?.role && filters.role !== "ALL") {
         list = list.filter((u) => u.role === filters.role);
@@ -318,6 +364,29 @@ export function useImportRosterAllowlist() {
     },
     onError: (err) => {
       toast.error("Import Failed", { description: err.message || "Failed to import roster." });
+    },
+  });
+}
+
+/**
+ * Delete User Profile Mutation
+ */
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, Error, { targetUid: string; email: string }>({
+    mutationFn: async ({ targetUid }) => {
+      await deleteDoc(doc(db, "users", targetUid));
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "users-directory"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard-metrics"] });
+      toast.success("User Record Removed", {
+        description: `Removed record for ${variables.email} from directory.`,
+      });
+    },
+    onError: (err) => {
+      toast.error("Delete Failed", { description: err.message || "Failed to remove user record." });
     },
   });
 }

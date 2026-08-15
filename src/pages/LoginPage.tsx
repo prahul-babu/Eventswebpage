@@ -5,7 +5,7 @@ import {
   updateProfile,
   signOut as firebaseSignOut,
 } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useAuth, getPostLoginRoute } from "@/lib/auth-context";
 import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
@@ -226,6 +226,18 @@ export const LoginPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
+      // 0. Enforce Unique Email: Check if email is already registered across any role
+      const usersRef = collection(db, "users");
+      const existingEmailQ = query(usersRef, where("email", "==", trimmedEmail));
+      const existingSnap = await getDocs(existingEmailQ);
+      if (!existingSnap.empty) {
+        setSignUpError(
+          "An account with this email address already exists. Please switch to the Sign In tab."
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       // 1. Create User in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(
         auth,

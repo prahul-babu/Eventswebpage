@@ -18,7 +18,7 @@ import {
   IdTokenResult,
   Unsubscribe,
 } from "firebase/auth";
-import { onSnapshot, doc, setDoc, getDoc } from "firebase/firestore";
+import { onSnapshot, doc, setDoc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "@/lib/firebase";
 import type {
@@ -435,32 +435,86 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 status: parsedStatus,
               });
             } else {
-              console.log("[AUTH-8] Firestore profile received: (None found, auto-creating)");
-              console.log("[AUTH-9] Role:", fallbackRole, "| Status:", fallbackStatus);
-              const destination = getPostLoginRoute(fallbackRole, fallbackStatus);
-              console.log("[AUTH-10] Route decision:", destination);
+              console.log("[AUTH-8] Firestore profile received: (None found by UID, checking by email)");
+              
+              // Prevent duplicate conflicting roles: Check if email already has an authoritative role
+              const currentUid = user.uid;
+              const currentEmail = user.email || "";
+              const emailKey = currentEmail.toLowerCase().trim();
+              let effectiveRole: UserRole = fallbackRole;
+              let effectiveStatus: UserStatus = fallbackStatus;
+              let effectiveDept = fallbackRole === "admin" ? "Institutional Administration" : "School of Technology";
+              let effectiveName = user.displayName || currentEmail.split("@")[0] || "Campus Member";
+              let effectiveRoll: string | undefined = undefined;
+              let effectiveEmp: string | undefined = undefined;
 
               const fallbackProfile: User = {
-                uid: user.uid,
-                email: user.email || "",
-                displayName:
-                  user.displayName ||
-                  user.email?.split("@")[0] ||
-                  "Campus Member",
+                uid: currentUid,
+                email: currentEmail,
+                displayName: effectiveName,
                 role: fallbackRole,
                 status: fallbackStatus,
-                department:
-                  fallbackRole === "admin"
-                    ? "Institutional Administration"
-                    : "School of Technology",
+                department: effectiveDept,
                 onboardingCompleted: true,
                 createdAt: new Date(),
                 updatedAt: new Date(),
               };
 
-              setProfile(fallbackProfile);
-              setClaims({ role: fallbackRole, status: fallbackStatus });
-              setDoc(userDocRef, fallbackProfile, { merge: true }).catch(() => {});
+              if (emailKey) {
+                const emailQ = query(collection(db, "users"), where("email", "==", emailKey));
+                getDocs(emailQ)
+                  .then((emailSnap) => {
+                    if (!emailSnap.empty) {
+                      const existingDoc = emailSnap.docs[0].data() as any;
+                      if (existingDoc.role) effectiveRole = String(existingDoc.role).toLowerCase() as UserRole;
+                      if (existingDoc.status) {
+                        const s = String(existingDoc.status).toUpperCase();
+                        effectiveStatus = (s === "PENDING" ? "PENDING" : s === "SUSPENDED" ? "SUSPENDED" : s === "REJECTED" ? "REJECTED" : "ACTIVE") as UserStatus;
+                      }
+                      if (existingDoc.department) effectiveDept = existingDoc.department;
+                      if (existingDoc.displayName || existingDoc.name) effectiveName = existingDoc.displayName || existingDoc.name;
+                      if (existingDoc.rollNumber) effectiveRoll = existingDoc.rollNumber;
+                      if (existingDoc.employeeId) effectiveEmp = existingDoc.employeeId;
+                    }
+
+                    console.log("[AUTH-9] Role:", effectiveRole, "| Status:", effectiveStatus);
+                    const destination = getPostLoginRoute(effectiveRole, effectiveStatus);
+                    console.log("[AUTH-10] Route decision:", destination);
+
+                    const resolvedProfile: User = {
+                      uid: currentUid,
+                      email: currentEmail || emailKey,
+                      displayName: effectiveName,
+                      role: effectiveRole,
+                      status: effectiveStatus,
+                      department: effectiveDept,
+                      rollNumber: effectiveRoll,
+                      employeeId: effectiveEmp,
+                      onboardingCompleted: true,
+                      createdAt: new Date(),
+                      updatedAt: new Date(),
+                    };
+
+                    setProfile(resolvedProfile);
+                    setClaims({ role: effectiveRole, status: effectiveStatus });
+                    setDoc(userDocRef, resolvedProfile, { merge: true }).catch(() => {});
+                    setIsLoading(false);
+                    setIsAuthenticating(false);
+                  })
+                  .catch(() => {
+                    setProfile(fallbackProfile);
+                    setClaims({ role: fallbackRole, status: fallbackStatus });
+                    setDoc(userDocRef, fallbackProfile, { merge: true }).catch(() => {});
+                    setIsLoading(false);
+                    setIsAuthenticating(false);
+                  });
+              } else {
+                setProfile(fallbackProfile);
+                setClaims({ role: fallbackRole, status: fallbackStatus });
+                setDoc(userDocRef, fallbackProfile, { merge: true }).catch(() => {});
+                setIsLoading(false);
+                setIsAuthenticating(false);
+              }
             }
             setIsLoading(false);
             setIsAuthenticating(false);
