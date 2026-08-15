@@ -220,33 +220,48 @@ export const LoginPage: React.FC = () => {
     clearAuthError();
     setSignUpError(null);
     setSignInError(null);
-    setResetSentNotice(null);
-
     const trimmedName = signUpName.trim();
     const trimmedEmail = signUpEmail.toLowerCase().trim();
 
-    if (!trimmedName || !trimmedEmail || !signUpPassword) {
-      setSignUpError("Please fill all required details.");
+    if (!trimmedName) {
+      setSignUpError("Please enter your Full Name.");
+      toast.error("Full Name Required", { description: "Please type your full name in the Full Name box." });
+      return;
+    }
+
+    if (!trimmedEmail) {
+      setSignUpError("Please enter your Email Address.");
+      toast.error("Email Address Required", { description: "Please type your email address in the Email field." });
       return;
     }
 
     if (signUpRole === "student" && !signUpRollNo.trim()) {
       setSignUpError("Please enter your Student Roll Number.");
+      toast.error("Roll Number Required", { description: "Please enter your student roll number." });
       return;
     }
 
     if (signUpRole === "faculty" && !signUpEmpId.trim()) {
       setSignUpError("Please enter your Faculty / Employee ID.");
+      toast.error("Employee ID Required", { description: "Please enter your faculty employee ID." });
+      return;
+    }
+
+    if (!signUpPassword) {
+      setSignUpError("Please enter a password.");
+      toast.error("Password Required", { description: "Please choose a password for your account." });
       return;
     }
 
     if (signUpPassword !== signUpConfirmPassword) {
       setSignUpError("Password and confirmation password do not match.");
+      toast.error("Password Mismatch", { description: "Password and confirmation password do not match." });
       return;
     }
 
     if (signUpPassword.length < 6) {
       setSignUpError("Password must be at least 6 characters long.");
+      toast.error("Password Too Short", { description: "Password must be at least 6 characters long." });
       return;
     }
 
