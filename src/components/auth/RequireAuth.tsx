@@ -47,8 +47,11 @@ export const RequireAuth: React.FC<RequireAuthProps> = ({ children, allowedRoles
   });
 
   // 3. Exact Role / Status Rules Enforcement:
-  // - faculty + PENDING → Faculty Pending Approval (/pending)
-  if (effectiveUserRole === "faculty" && effectiveStatus === "PENDING") {
+  // - faculty + PENDING (or unapproved) → Faculty Pending Approval (/pending)
+  if (
+    effectiveUserRole === "faculty" &&
+    (effectiveStatus === "PENDING" || profile?.isApproved === false || profile?.approvalStatus === "pending")
+  ) {
     if (location.pathname !== "/pending") {
       console.log("[ROUTE 13] Faculty pending redirect to /pending");
       return <Navigate to="/pending" replace />;
@@ -56,8 +59,12 @@ export const RequireAuth: React.FC<RequireAuthProps> = ({ children, allowedRoles
     return <>{children}</>;
   }
 
-  // - Blocked / Suspended accounts
-  if (effectiveStatus === "SUSPENDED" || effectiveStatus === "REJECTED") {
+  // - Blocked / Suspended / Rejected accounts
+  if (
+    effectiveStatus === "SUSPENDED" ||
+    effectiveStatus === "REJECTED" ||
+    profile?.approvalStatus === "rejected"
+  ) {
     if (location.pathname !== "/account-blocked") {
       console.log("[ROUTE 13] Account blocked redirect to /account-blocked");
       return <Navigate to="/account-blocked" replace />;

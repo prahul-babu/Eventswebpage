@@ -55,7 +55,6 @@ export const LoginPage: React.FC = () => {
   const {
     loginWithEmail,
     signUpWithEmail,
-    submitFacultyApplication,
     signInWithMicrosoft,
     isLoading,
     isAuthenticating,
@@ -267,25 +266,26 @@ export const LoginPage: React.FC = () => {
     setIsSubmitting(true);
     try {
       if (signUpRole === "faculty") {
-        const { applicationId } = await submitFacultyApplication({
-          fullName: trimmedName,
-          officialEmail: trimmedEmail,
-          employeeId: signUpEmpId.trim().toUpperCase(),
+        await signUpWithEmail({
+          email: trimmedEmail,
+          password: signUpPassword,
+          displayName: trimmedName,
+          role: "faculty",
           department: signUpFacultyDept,
           school: "School of Technology",
           designation: signUpDesignation || "Assistant Professor",
-          mobileNumber: signUpMobile.trim() || undefined,
+          phoneNumber: signUpMobile.trim() || undefined,
+          employeeId: signUpEmpId.trim().toUpperCase(),
         });
 
-        toast.success("Faculty Registration Submitted", {
+        toast.success("Faculty registration submitted successfully.", {
           description:
-            "Your faculty registration has been submitted and is awaiting administrator approval.",
+            "Your account is waiting for administrator approval. You will receive an email once your account has been approved.",
         });
 
         navigate("/faculty/application-submitted", {
           replace: true,
           state: {
-            applicationId,
             fullName: trimmedName,
             officialEmail: trimmedEmail,
             employeeId: signUpEmpId.trim().toUpperCase(),

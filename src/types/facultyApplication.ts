@@ -12,6 +12,8 @@ export interface FacultyApplication {
   alternateEmail?: string;
   role: "faculty";
   status: "pending" | "approved" | "rejected";
+  approvalStatus?: "pending" | "approved" | "rejected" | string;
+  isApproved?: boolean;
   submittedAt: Date;
   reviewedAt?: Date | null;
   reviewedBy?: string | null;

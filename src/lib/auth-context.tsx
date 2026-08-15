@@ -392,9 +392,20 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             effectiveRole === "faculty" ? "PENDING" : "ACTIVE"
           ) as UserStatus;
         }
-        // Check faculty approval status
+        // Check faculty approval status from database record
         if (effectiveRole === "faculty") {
-          if (effectiveStatus === "PENDING" || (userData && userData.accountStatus === "pending")) {
+          const isPending =
+            effectiveStatus === "PENDING" ||
+            userData?.approvalStatus === "pending" ||
+            userData?.isApproved === false ||
+            userData?.accountStatus === "pending";
+
+          const isRejected =
+            effectiveStatus === "REJECTED" ||
+            userData?.approvalStatus === "rejected" ||
+            userData?.accountStatus === "rejected";
+
+          if (isPending) {
             await auth.signOut();
             setFirebaseUser(null);
             setProfile(null);
@@ -402,9 +413,12 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             clearPersistedRole();
             setIsLoading(false);
             setIsAuthenticating(false);
-            throw new Error("Your faculty account is still awaiting administrator approval.");
+            throw new Error(
+              "Your faculty account is still awaiting administrator approval. Please wait until the administrator approves your account."
+            );
           }
-          if (effectiveStatus === "REJECTED" || (userData && userData.accountStatus === "rejected")) {
+
+          if (isRejected) {
             await auth.signOut();
             setFirebaseUser(null);
             setProfile(null);
@@ -412,7 +426,9 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             clearPersistedRole();
             setIsLoading(false);
             setIsAuthenticating(false);
-            throw new Error("Your faculty application was not approved.");
+            throw new Error(
+              "Your faculty account registration was rejected. Please contact the administrator."
+            );
           }
         }
 
@@ -425,6 +441,9 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             trimmedEmail.split("@")[0],
           role: effectiveRole,
           status: effectiveStatus,
+          isApproved: userData?.isApproved ?? (effectiveStatus === "ACTIVE"),
+          accountStatus: userData?.accountStatus || (effectiveStatus === "ACTIVE" ? "active" : "pending"),
+          approvalStatus: userData?.approvalStatus || (effectiveStatus === "ACTIVE" ? "approved" : "pending"),
           department:
             userData?.department ||
             (effectiveRole === "admin"
@@ -457,6 +476,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
       } catch (err: any) {
         if (
           err.message?.includes("awaiting administrator approval") ||
+          err.message?.includes("was rejected") ||
           err.message?.includes("was not approved")
         ) {
           throw err;
@@ -470,16 +490,21 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
           );
           if (!fAppSnap.empty) {
             const fApp = fAppSnap.docs[0].data();
-            if (fApp.status === "pending") {
-              throw new Error("Your faculty account is still awaiting administrator approval.");
+            if (fApp.status === "pending" || fApp.approvalStatus === "pending" || fApp.isApproved === false) {
+              throw new Error(
+                "Your faculty account is still awaiting administrator approval. Please wait until the administrator approves your account."
+              );
             }
-            if (fApp.status === "rejected") {
-              throw new Error("Your faculty application was not approved.");
+            if (fApp.status === "rejected" || fApp.approvalStatus === "rejected") {
+              throw new Error(
+                "Your faculty account registration was rejected. Please contact the administrator."
+              );
             }
           }
         } catch (appCheckErr: any) {
           if (
             appCheckErr.message?.includes("awaiting administrator approval") ||
+            appCheckErr.message?.includes("was rejected") ||
             appCheckErr.message?.includes("was not approved")
           ) {
             throw appCheckErr;
@@ -529,6 +554,8 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
         alternateEmail: payload.alternateEmail || "",
         role: "faculty",
         status: "pending",
+        approvalStatus: "pending",
+        isApproved: false,
         submittedAt: new Date(),
         reviewedAt: null,
         reviewedBy: null,
@@ -547,11 +574,11 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
 
   /**
    * DIRECT EMAIL / PASSWORD SIGN UP:
-   * 1. Pre-caches selected role in localStorage so frame-0 loaders and listeners recognize the role immediately
+   * 1. Pre-caches selected role in localStorage
    * 2. Creates user in Firebase Auth
    * 3. Sets displayName in Firebase Auth profile
-   * 4. Writes authoritative role directly to Firestore users/{uid} BEFORE allowing any redirects
-   * 5. Updates React state and resolves cleanly to the selected role portal
+   * 4. Writes authoritative role directly to Firestore users/{uid}
+   * 5. If faculty, creates pending application & signs out to prevent unauthorized portal access
    */
   const signUpWithEmail = useCallback(
     async (payload: {
@@ -595,8 +622,6 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
           console.warn("[Auth] updateProfile notice:", e);
         }
 
-        setFirebaseUser(user);
-
         // 4. If faculty, register in facultyApplications
         if (effRole === "faculty") {
           const appId = `fapp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -614,6 +639,8 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             alternateEmail: payload.alternateEmail || "",
             role: "faculty",
             status: "pending",
+            approvalStatus: "pending",
+            isApproved: false,
             submittedAt: new Date(),
             reviewedAt: null,
             reviewedBy: null,
@@ -621,13 +648,14 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
           });
         }
 
-        // 5. Construct complete authoritative profile
+        // 5. Construct complete authoritative profile in users/{uid}
         const userProfile: User = {
           uid: user.uid,
           email: user.email || trimmedEmail,
           displayName: trimmedName || user.displayName || trimmedEmail.split("@")[0],
           role: effRole,
           status: effStatus,
+          isApproved: effRole !== "faculty",
           accountStatus: effStatus === "ACTIVE" ? "active" : "pending",
           approvalStatus: effStatus === "ACTIVE" ? "approved" : "pending",
           department:
@@ -652,7 +680,22 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
         const userDocRef = doc(db, "users", user.uid);
         await setDoc(userDocRef, userProfile, { merge: true });
 
-        // 7. Set state
+        // 7. If faculty:
+        // DO NOT log the faculty into the Faculty Dashboard.
+        // Sign the faculty out from Firebase Auth so they remain in a clean unauthenticated state.
+        if (effRole === "faculty") {
+          await auth.signOut();
+          setFirebaseUser(null);
+          setProfile(null);
+          setClaims(null);
+          clearPersistedRole();
+          setIsLoading(false);
+          setIsAuthenticating(false);
+          return { user: null as any, role: "faculty", status: "PENDING" };
+        }
+
+        // Student registration continues to active session:
+        setFirebaseUser(user);
         setProfile(userProfile);
         setClaims({ role: effRole, status: effStatus });
         persistUserRole(effRole, effStatus);
@@ -663,7 +706,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
         setIsAuthenticating(false);
       }
     },
-    [persistUserRole]
+    [persistUserRole, clearPersistedRole]
   );
 
   // Startup: Check for redirect result from Microsoft OAuth

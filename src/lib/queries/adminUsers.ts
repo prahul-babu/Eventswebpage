@@ -836,6 +836,7 @@ export function useApproveFacultyApplication() {
             status: "ACTIVE",
             accountStatus: "active",
             approvalStatus: "approved",
+            isApproved: true,
             approvedAt: new Date(),
             approvedBy: adminUid,
             updatedAt: new Date(),
@@ -844,7 +845,46 @@ export function useApproveFacultyApplication() {
         );
       }
 
-      // 3. Log immutable audit trail
+      // 3. Queue Approval Email & Notification for faculty member
+      try {
+        const notificationDocRef = doc(collection(db, "notifications"));
+        await setDoc(notificationDocRef, {
+          recipientUid: targetUid || "",
+          recipientEmail: email,
+          type: "ACCESS_APPROVED",
+          title: "Apollo University Event Hub — Faculty Account Approved",
+          message: `Dear ${fullName || appData?.fullName || "Faculty Member"},\n\nYour faculty account for the Apollo University Event Hub has been approved by the administrator.\n\nYour account is now active and you can sign in to the Faculty Portal.`,
+          body: `Dear ${fullName || appData?.fullName || "Faculty Member"},\n\nYour faculty account for the Apollo University Event Hub has been approved by the administrator.\n\nYour account is now active and you can sign in to the Faculty Portal.\n\nRegards,\nThe Apollo University\nSchool of Technology`,
+          read: false,
+          priority: "HIGH",
+          createdAt: new Date(),
+        });
+
+        // Also record in mail collection for backend trigger dispatch
+        const mailDocRef = doc(collection(db, "mail"));
+        await setDoc(mailDocRef, {
+          to: email,
+          message: {
+            subject: "Apollo University Event Hub — Faculty Account Approved",
+            text: `Dear ${fullName || appData?.fullName || "Faculty Member"},\n\nYour faculty account for the Apollo University Event Hub has been approved by the administrator.\n\nYour account is now active and you can sign in to the Faculty Portal.\n\nRegards,\nThe Apollo University\nSchool of Technology`,
+            html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+              <h2 style="color: #004D61;">The Apollo University Event Hub</h2>
+              <p>Dear <strong>${fullName || appData?.fullName || "Faculty Member"}</strong>,</p>
+              <p>Your faculty account for the <strong>Apollo University Event Hub</strong> has been approved by the administrator.</p>
+              <p>Your account is now active and you can sign in to the Faculty Portal to propose, manage, and view events.</p>
+              <div style="margin: 25px 0;">
+                <a href="https://theapolloeventhub.web.app/login" style="background-color: #007A99; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Log in to Faculty Portal</a>
+              </div>
+              <p style="color: #64748b; font-size: 12px; margin-top: 30px;">Regards,<br>The Apollo University<br>School of Technology</p>
+            </div>`,
+          },
+          createdAt: new Date(),
+        });
+      } catch (mailErr) {
+        console.warn("[useApproveFacultyApplication] Email queue notice:", mailErr);
+      }
+
+      // 4. Log immutable audit trail
       logAuditEvent({
         action: "FACULTY_APPROVED",
         targetType: "USER",
@@ -869,7 +909,7 @@ export function useApproveFacultyApplication() {
       queryClient.invalidateQueries({ queryKey: ["admin", "users-directory"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "dashboard-metrics"] });
 
-      toast.success("Faculty Account Approved", {
+      toast.success("Faculty account approved successfully.", {
         description: `Approval confirmed for ${data.email}. Faculty member can now sign in.`,
       });
     },

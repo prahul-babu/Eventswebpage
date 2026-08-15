@@ -168,6 +168,7 @@ export interface User {
   fcmTokens?: string[];
 
   // Admin Approval Audit
+  isApproved?: boolean;
   accountStatus?: string;
   approvalStatus?: string;
   approvedBy?: string;
@@ -188,6 +189,9 @@ export interface FirestoreUserDocument {
   displayName: string;
   role: UserRole;
   status: UserStatus;
+  isApproved?: boolean;
+  accountStatus?: string;
+  approvalStatus?: string;
   department: Department | string;
   school?: string;
   
