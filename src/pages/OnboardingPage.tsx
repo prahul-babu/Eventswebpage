@@ -68,7 +68,7 @@ export const OnboardingPage: React.FC = () => {
 
   // If unauthenticated, redirect to login
   if (!isAuthenticated || !firebaseUser) {
-    console.error("LOGIN REDIRECT", {
+    console.error("[REDIRECT 15] exact reason if RequireAuth redirects to /login:", {
       currentPath: window.location.pathname,
       firebaseUser: auth.currentUser?.uid || null,
       email: auth.currentUser?.email || null,
