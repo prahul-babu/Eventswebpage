@@ -12,6 +12,7 @@ const LandingPage = lazy(() => import("@/pages/LandingPage").then((m) => ({ defa
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
 const OnboardingPage = lazy(() => import("@/pages/OnboardingPage").then((m) => ({ default: m.OnboardingPage })));
 const PendingPage = lazy(() => import("@/pages/PendingPage").then((m) => ({ default: m.PendingPage })));
+const FacultyApplicationSubmittedPage = lazy(() => import("@/pages/faculty/FacultyApplicationSubmittedPage").then((m) => ({ default: m.FacultyApplicationSubmittedPage })));
 const AccountBlockedPage = lazy(() => import("@/pages/AccountBlockedPage").then((m) => ({ default: m.AccountBlockedPage })));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })));
 
@@ -61,6 +62,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/pending" element={<PendingPage />} />
+        <Route path="/faculty/application-submitted" element={<FacultyApplicationSubmittedPage />} />
         <Route path="/account-blocked" element={<AccountBlockedPage />} />
 
         {/* Student Portal & Shared Campus Routes */}

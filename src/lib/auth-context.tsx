@@ -28,6 +28,7 @@ import type {
   User,
   UserRole,
   UserStatus,
+  FacultyApplication,
   ResolveUserResponse,
   RequestAccessPayload,
   SetUserRolePayload,
@@ -108,6 +109,16 @@ export interface AuthContextValue {
     rollNumber?: string;
     employeeId?: string;
   }) => Promise<{ user: FirebaseUser; role: UserRole; status: UserStatus }>;
+  submitFacultyApplication: (payload: {
+    fullName: string;
+    officialEmail: string;
+    mobileNumber?: string;
+    employeeId: string;
+    department: string;
+    school?: string;
+    designation?: string;
+    alternateEmail?: string;
+  }) => Promise<{ success: boolean; applicationId: string }>;
   signInWithMicrosoft: () => Promise<void>;
   signInAsDevUser: (role: UserRole) => Promise<void>;
   signOut: () => Promise<void>;
@@ -381,6 +392,29 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             effectiveRole === "faculty" ? "PENDING" : "ACTIVE"
           ) as UserStatus;
         }
+        // Check faculty approval status
+        if (effectiveRole === "faculty") {
+          if (effectiveStatus === "PENDING" || (userData && userData.accountStatus === "pending")) {
+            await auth.signOut();
+            setFirebaseUser(null);
+            setProfile(null);
+            setClaims(null);
+            clearPersistedRole();
+            setIsLoading(false);
+            setIsAuthenticating(false);
+            throw new Error("Your faculty account is still awaiting administrator approval.");
+          }
+          if (effectiveStatus === "REJECTED" || (userData && userData.accountStatus === "rejected")) {
+            await auth.signOut();
+            setFirebaseUser(null);
+            setProfile(null);
+            setClaims(null);
+            clearPersistedRole();
+            setIsLoading(false);
+            setIsAuthenticating(false);
+            throw new Error("Your faculty application was not approved.");
+          }
+        }
 
         const userProfile: User = {
           uid: user.uid,
@@ -420,11 +454,95 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
         });
 
         return { user, role: effectiveRole, status: effectiveStatus };
+      } catch (err: any) {
+        if (
+          err.message?.includes("awaiting administrator approval") ||
+          err.message?.includes("was not approved")
+        ) {
+          throw err;
+        }
+
+        // If credentials failed or user not found, check if there is a pending/rejected application
+        try {
+          const trimmedEmail = emailStr.toLowerCase().trim();
+          const fAppSnap = await getDocs(
+            query(collection(db, "facultyApplications"), where("officialEmail", "==", trimmedEmail))
+          );
+          if (!fAppSnap.empty) {
+            const fApp = fAppSnap.docs[0].data();
+            if (fApp.status === "pending") {
+              throw new Error("Your faculty account is still awaiting administrator approval.");
+            }
+            if (fApp.status === "rejected") {
+              throw new Error("Your faculty application was not approved.");
+            }
+          }
+        } catch (appCheckErr: any) {
+          if (
+            appCheckErr.message?.includes("awaiting administrator approval") ||
+            appCheckErr.message?.includes("was not approved")
+          ) {
+            throw appCheckErr;
+          }
+        }
+
+        throw err;
       } finally {
         setIsAuthenticating(false);
       }
     },
-    [persistUserRole]
+    [persistUserRole, clearPersistedRole]
+  );
+
+  /**
+   * SUBMIT FACULTY APPLICATION (Unauthenticated):
+   * Creates a pending application in facultyApplications collection without creating or logging into Firebase Auth.
+   */
+  const submitFacultyApplication = useCallback(
+    async (payload: {
+      fullName: string;
+      officialEmail: string;
+      mobileNumber?: string;
+      employeeId: string;
+      department: string;
+      school?: string;
+      designation?: string;
+      alternateEmail?: string;
+    }): Promise<{ success: boolean; applicationId: string }> => {
+      setIsAuthenticating(false);
+      setIsLoading(false);
+
+      const trimmedEmail = payload.officialEmail.toLowerCase().trim();
+      const trimmedName = payload.fullName.trim();
+      const appId = `fapp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+      const applicationDoc: FacultyApplication = {
+        id: appId,
+        applicationId: appId,
+        fullName: trimmedName,
+        officialEmail: trimmedEmail,
+        mobileNumber: payload.mobileNumber || "",
+        employeeId: payload.employeeId.trim().toUpperCase(),
+        department: payload.department || "School of Technology",
+        school: payload.school || "School of Technology",
+        designation: payload.designation || "Assistant Professor",
+        alternateEmail: payload.alternateEmail || "",
+        role: "faculty",
+        status: "pending",
+        submittedAt: new Date(),
+        reviewedAt: null,
+        reviewedBy: null,
+        rejectionReason: null,
+      };
+
+      await setDoc(doc(db, "facultyApplications", appId), applicationDoc);
+
+      setIsLoading(false);
+      setIsAuthenticating(false);
+
+      return { success: true, applicationId: appId };
+    },
+    []
   );
 
   /**
@@ -1112,6 +1230,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
     updateUserProfile,
     loginWithEmail,
     signUpWithEmail,
+    submitFacultyApplication,
     signInWithMicrosoft,
     signInAsDevUser,
     signOut,

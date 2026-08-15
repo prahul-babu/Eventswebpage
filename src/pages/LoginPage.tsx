@@ -55,6 +55,7 @@ export const LoginPage: React.FC = () => {
   const {
     loginWithEmail,
     signUpWithEmail,
+    submitFacultyApplication,
     signInWithMicrosoft,
     isLoading,
     isAuthenticating,
@@ -265,33 +266,54 @@ export const LoginPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      // Register with authoritative role and write profile atomically
-      const { role, status } = await signUpWithEmail({
-        email: trimmedEmail,
-        password: signUpPassword,
-        displayName: trimmedName,
-        role: signUpRole,
-        department: signUpRole === "student" ? signUpBranch : signUpFacultyDept,
-        school: "School of Technology",
-        designation: signUpRole === "faculty" ? (signUpDesignation || "Assistant Professor") : undefined,
-        phoneNumber: signUpMobile.trim() || undefined,
-        rollNumber: signUpRole === "student" ? signUpRollNo.trim().toUpperCase() : undefined,
-        employeeId: signUpRole === "faculty" ? signUpEmpId.trim().toUpperCase() : undefined,
-      });
-
       if (signUpRole === "faculty") {
+        const { applicationId } = await submitFacultyApplication({
+          fullName: trimmedName,
+          officialEmail: trimmedEmail,
+          employeeId: signUpEmpId.trim().toUpperCase(),
+          department: signUpFacultyDept,
+          school: "School of Technology",
+          designation: signUpDesignation || "Assistant Professor",
+          mobileNumber: signUpMobile.trim() || undefined,
+        });
+
         toast.success("Faculty Registration Submitted", {
           description:
-            "Your account is currently pending administrator approval. You will receive an email once your Apollo University faculty account has been approved.",
+            "Your faculty registration has been submitted and is awaiting administrator approval.",
+        });
+
+        navigate("/faculty/application-submitted", {
+          replace: true,
+          state: {
+            applicationId,
+            fullName: trimmedName,
+            officialEmail: trimmedEmail,
+            employeeId: signUpEmpId.trim().toUpperCase(),
+            department: signUpFacultyDept,
+            school: "School of Technology",
+            designation: signUpDesignation || "Assistant Professor",
+            mobileNumber: signUpMobile.trim() || undefined,
+            submittedAt: new Date().toISOString(),
+          },
         });
       } else {
+        // Register Student with authoritative role
+        const { role, status } = await signUpWithEmail({
+          email: trimmedEmail,
+          password: signUpPassword,
+          displayName: trimmedName,
+          role: "student",
+          department: signUpBranch,
+          rollNumber: signUpRollNo.trim().toUpperCase(),
+        });
+
         toast.success("Account Created Successfully!", {
           description: `Welcome to Apollo Event Hub, ${trimmedName}! Signed in as ${role.toUpperCase()}.`,
         });
-      }
 
-      const destination = getPostLoginRoute(role, status);
-      navigate(destination);
+        const destination = getPostLoginRoute(role, status);
+        navigate(destination);
+      }
     } catch (err: any) {
       console.warn("[Auth] Sign Up error:", err.code, err.message);
 
