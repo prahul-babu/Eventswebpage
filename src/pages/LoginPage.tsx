@@ -1,12 +1,11 @@
 import React, { useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import {
-  signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
   signOut as firebaseSignOut,
 } from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
@@ -58,10 +57,12 @@ const FACULTY_DEPARTMENTS = [
 
 export const LoginPage: React.FC = () => {
   const {
+    loginWithEmail,
     signInWithMicrosoft,
     isAuthenticating,
     isAuthenticated,
     firebaseUser,
+    role: currentRole,
     authError,
     clearAuthError,
   } = useAuth();
@@ -95,8 +96,10 @@ export const LoginPage: React.FC = () => {
   const [signUpError, setSignUpError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // If already authenticated, redirect to home
+  // If already authenticated, redirect to destination portal
   if (isAuthenticated && firebaseUser) {
+    if (currentRole === "admin") return <Navigate to="/admin" replace />;
+    if (currentRole === "faculty") return <Navigate to="/faculty" replace />;
     return <Navigate to="/" replace />;
   }
 
@@ -112,13 +115,9 @@ export const LoginPage: React.FC = () => {
   };
 
   /**
-   * STRICT SIGN IN:
-   * 1. Validates against Firebase Auth.
-   * 2. Checks Firestore document or assigns selected role.
-   * 3. Redirects to the appropriate role page:
-   *    - Student  -> /
-   *    - Faculty  -> /faculty
-   *    - Admin    -> /admin
+   * SIGN IN:
+   * Validates account in Firebase & routes to destination.
+   * If not registered, displays account not found alert.
    */
   const handleDirectSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,60 +135,21 @@ export const LoginPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      // 1. Attempt live Firebase Auth Sign In
-      const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
-      const user = userCredential.user;
-
-      // 2. Fetch User Profile from Firestore & set active role
-      const userDocRef = doc(db, "users", user.uid);
-      const userDocSnap = await getDoc(userDocRef);
-
-      let effectiveRole: UserRole = selectedRole;
-
-      const isAdminEmail =
-        trimmedEmail.includes("admin") ||
-        trimmedEmail === "panukurahulbabu@gmail.com" ||
-        trimmedEmail === "122411510302@apollouniversity.edu.in" ||
-        trimmedEmail === "122411520313@apollouniversity.edu.in";
-
-      if (selectedRole === "admin" || isAdminEmail) {
-        effectiveRole = "admin";
-      } else if (userDocSnap.exists()) {
-        const userData = userDocSnap.data();
-        effectiveRole = (userData.role || selectedRole).toLowerCase() as UserRole;
-      } else {
-        effectiveRole = selectedRole;
-      }
-
-      await setDoc(
-        userDocRef,
-        {
-          uid: user.uid,
-          email: trimmedEmail,
-          displayName: user.displayName || trimmedEmail.split("@")[0],
-          role: effectiveRole,
-          status: "ACTIVE",
-          department: effectiveRole === "admin" ? "Institutional Administration" : "School of Technology",
-          onboardingCompleted: true,
-          updatedAt: new Date(),
-        },
-        { merge: true }
-      );
+      const { role } = await loginWithEmail(trimmedEmail, trimmedPassword, selectedRole);
 
       toast.success("Welcome back!", {
-        description: `Signed in as ${user.displayName || trimmedEmail} (${effectiveRole.toUpperCase()})`,
+        description: `Signed in successfully as ${role.toUpperCase()}`,
       });
 
-      // 3. Redirect to the respective portal
-      if (effectiveRole === "admin") {
+      if (role === "admin") {
         navigate("/admin");
-      } else if (effectiveRole === "faculty") {
+      } else if (role === "faculty") {
         navigate("/faculty");
       } else {
         navigate("/");
       }
     } catch (firebaseErr: any) {
-      console.warn("[Auth] Sign In notice:", firebaseErr.code || firebaseErr.message);
+      console.warn("[Auth] Sign In error:", firebaseErr.code, firebaseErr.message);
 
       const code = firebaseErr.code || "";
 
@@ -222,9 +182,9 @@ export const LoginPage: React.FC = () => {
 
   /**
    * SIGN UP:
-   * 1. Creates user in Firebase Authentication & creates their document in Firestore.
-   * 2. Sets role as "student" or "faculty".
-   * 3. Signs out and redirects to the Sign In tab with pre-filled email.
+   * 1. If email already in use, shows warning alert.
+   * 2. If valid, creates account, saves Firestore document, signs out,
+   *    and redirects back to Sign In tab with a success pop-up notice.
    */
   const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -273,7 +233,7 @@ export const LoginPage: React.FC = () => {
       // 2. Set Display Name in Firebase Auth
       await updateProfile(user, { displayName: trimmedName });
 
-      // 3. Save User Document in Cloud Firestore
+      // 3. Save User Profile in Cloud Firestore
       await setDoc(
         doc(db, "users", user.uid),
         {
@@ -296,15 +256,18 @@ export const LoginPage: React.FC = () => {
       // 4. Sign out so user explicitly signs in from the Sign In tab
       await firebaseSignOut(auth);
 
-      // 5. Switch to Sign In tab, pre-select role, and pre-fill email
+      // 5. Switch to Sign In tab and pre-fill email
       setSelectedRole(signUpRole);
       setEmail(trimmedEmail);
       setPassword("");
       setSignUpPassword("");
       setSignUpConfirmPassword("");
+      setSignUpName("");
+      setSignUpRollNo("");
+      setSignUpEmpId("");
       setAuthMode("signin");
       setSignUpSuccessNotice(
-        `Account created successfully for ${trimmedName} (${signUpRole.toUpperCase()})! Please enter your password to Sign In.`
+        `Account created successfully for ${trimmedName}! Please enter your password to Sign In.`
       );
 
       toast.success("Account Created Successfully!", {
@@ -314,7 +277,7 @@ export const LoginPage: React.FC = () => {
       console.warn("[Auth] Sign Up error:", err.code, err.message);
 
       if (err.code === "auth/email-already-in-use") {
-        setSignUpError("An account with this email already exists. Please switch to Sign In.");
+        setSignUpError("An account with this email already exists. Please switch to the Sign In tab.");
       } else if (err.code === "auth/invalid-email") {
         setSignUpError("Invalid email address format. Please check your email.");
       } else if (err.code === "auth/weak-password") {
@@ -414,7 +377,7 @@ export const LoginPage: React.FC = () => {
                 {signUpSuccessNotice && (
                   <Alert className="py-2.5 text-xs border-emerald-300 bg-emerald-50 text-emerald-900">
                     <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    <AlertTitle className="font-bold text-xs text-emerald-800">Sign Up Successful!</AlertTitle>
+                    <AlertTitle className="font-bold text-xs text-emerald-800">Account Created!</AlertTitle>
                     <AlertDescription className="text-[11px] mt-0.5 text-emerald-700">
                       {signUpSuccessNotice}
                     </AlertDescription>
@@ -424,7 +387,7 @@ export const LoginPage: React.FC = () => {
                 {signInError && (
                   <Alert variant="destructive" className="py-2.5 text-xs border-red-200 bg-red-50 text-red-900">
                     <ShieldAlert className="h-4 w-4 text-red-600" />
-                    <AlertTitle className="font-bold text-xs">Sign In Failed</AlertTitle>
+                    <AlertTitle className="font-bold text-xs">Sign In Notice</AlertTitle>
                     <AlertDescription className="text-[11px] mt-1 space-y-2">
                       <p>{signInError.message}</p>
                       {signInError.notRegistered && (
@@ -449,7 +412,7 @@ export const LoginPage: React.FC = () => {
 
                 {/* ROLE SELECTOR */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-slate-700">Select Login Portal / Role</Label>
+                  <Label className="text-xs font-bold text-slate-700">Select Login Role</Label>
                   <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100/90 rounded-xl">
                     <button
                       type="button"
@@ -814,7 +777,7 @@ export const LoginPage: React.FC = () => {
             >
               <svg className="w-4 h-4 shrink-0" viewBox="0 0 21 21">
                 <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                <rect x="1" y="1" width="9" height="9" fill="#00a4ef" />
                 <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
                 <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
               </svg>

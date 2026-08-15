@@ -10,11 +10,11 @@ interface RequireAuthProps {
 }
 
 export const RequireAuth: React.FC<RequireAuthProps> = ({ children, allowedRoles }) => {
-  const { isLoading, isAuthenticated, status, role } = useAuth();
+  const { isLoading, isAuthenticating, isAuthenticated, status, role } = useAuth();
   const location = useLocation();
 
   // 1. Show full-screen loading screen while resolving auth state
-  if (isLoading) {
+  if (isLoading || isAuthenticating) {
     return <AuthLoadingScreen />;
   }
 

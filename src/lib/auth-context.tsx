@@ -14,11 +14,12 @@ import {
   getRedirectResult,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  signInWithEmailAndPassword,
   signInAnonymously,
   IdTokenResult,
   Unsubscribe,
 } from "firebase/auth";
-import { onSnapshot, doc, setDoc } from "firebase/firestore";
+import { onSnapshot, doc, setDoc, getDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "@/lib/firebase";
 import type {
@@ -50,6 +51,7 @@ export interface AuthContextValue {
   isAccountActive: boolean;
   isAccountBlocked: boolean;
   authError: string | null;
+  loginWithEmail: (email: string, pass: string, selectedRole: UserRole) => Promise<{ user: FirebaseUser; role: UserRole }>;
   signInWithMicrosoft: () => Promise<void>;
   signInAsDevUser: (role: UserRole) => Promise<void>;
   signOut: () => Promise<void>;
@@ -68,54 +70,11 @@ const isMobileDevice = (): boolean => {
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("apollo_dev_user");
-      if (saved) {
-        try {
-          const u = JSON.parse(saved);
-          return {
-            uid: u.uid,
-            email: u.email,
-            displayName: u.displayName || u.name,
-            emailVerified: true,
-            isAnonymous: false,
-            photoURL: null,
-            getIdToken: async () => "mock-dev-token",
-            getIdTokenResult: async () => ({ claims: { role: u.role, status: u.status || "ACTIVE" } }),
-          } as unknown as FirebaseUser;
-        } catch {}
-      }
-    }
-    return null;
-  });
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(() => auth.currentUser);
 
-  const [claims, setClaims] = useState<AuthClaims | null>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("apollo_dev_user");
-      if (saved) {
-        try {
-          const u = JSON.parse(saved);
-          return { role: u.role, status: u.status || "ACTIVE" };
-        } catch {}
-      }
-    }
-    return null;
-  });
-
-  const [profile, setProfile] = useState<User | null>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("apollo_dev_user");
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch {}
-      }
-    }
-    return null;
-  });
-
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [claims, setClaims] = useState<AuthClaims | null>(null);
+  const [profile, setProfile] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -150,7 +109,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const result = await resolveFn();
       await refreshClaims();
       return result.data;
-    } catch (err: unknown) {
+    } catch {
       if (profile) {
         return {
           state: "ready",
@@ -187,7 +146,81 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     []
   );
 
-  // Redirect handler
+  // Direct login with email and password
+  const loginWithEmail = useCallback(
+    async (emailStr: string, passwordStr: string, selectedRole: UserRole): Promise<{ user: FirebaseUser; role: UserRole }> => {
+      setIsAuthenticating(true);
+      setAuthError(null);
+
+      try {
+        const trimmedEmail = emailStr.toLowerCase().trim();
+        const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, passwordStr);
+        const user = userCredential.user;
+
+        setFirebaseUser(user);
+
+        // Compute effective role
+        const isAdmin =
+          trimmedEmail.includes("admin") ||
+          trimmedEmail === "panukurahulbabu@gmail.com" ||
+          trimmedEmail === "122411510302@apollouniversity.edu.in" ||
+          trimmedEmail === "122411520313@apollouniversity.edu.in" ||
+          selectedRole === "admin";
+
+        let effectiveRole: UserRole = selectedRole;
+        if (isAdmin) {
+          effectiveRole = "admin";
+        } else if (selectedRole === "faculty") {
+          effectiveRole = "faculty";
+        } else {
+          effectiveRole = "student";
+        }
+
+        const userDocRef = doc(db, "users", user.uid);
+        let existingData: any = {};
+        try {
+          const snap = await getDoc(userDocRef);
+          if (snap.exists()) {
+            existingData = snap.data();
+            if (existingData.role && !isAdmin) {
+              effectiveRole = existingData.role as UserRole;
+            }
+          }
+        } catch (e) {
+          console.warn("[Auth] Firestore read warning:", e);
+        }
+
+        const userProfile: User = {
+          uid: user.uid,
+          email: user.email || trimmedEmail,
+          displayName: existingData.displayName || user.displayName || trimmedEmail.split("@")[0],
+          role: effectiveRole,
+          status: "ACTIVE",
+          department: existingData.department || (effectiveRole === "admin" ? "Institutional Administration" : "School of Technology"),
+          rollNumber: existingData.rollNumber,
+          employeeId: existingData.employeeId,
+          onboardingCompleted: true,
+          createdAt: existingData.createdAt ? (existingData.createdAt.toDate ? existingData.createdAt.toDate() : new Date(existingData.createdAt)) : new Date(),
+          updatedAt: new Date(),
+        };
+
+        setProfile(userProfile);
+        setClaims({ role: effectiveRole, status: "ACTIVE" });
+
+        // Save to Firestore in background
+        setDoc(userDocRef, userProfile, { merge: true }).catch((err) => {
+          console.warn("[Auth] Profile background sync notice:", err);
+        });
+
+        return { user, role: effectiveRole };
+      } finally {
+        setIsAuthenticating(false);
+      }
+    },
+    []
+  );
+
+  // Redirect handler for OAuth
   useEffect(() => {
     let isMounted = true;
 
@@ -195,12 +228,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const result = await getRedirectResult(auth);
         if (result && result.user && isMounted) {
-          const isDomainValid = await validateAndEnforceDomainGuard(result.user);
-          if (isDomainValid) {
-            toast.success("Welcome back!", {
-              description: `Signed in as ${result.user.displayName || result.user.email}`,
-            });
-          }
+          toast.success("Welcome back!", {
+            description: `Signed in as ${result.user.displayName || result.user.email}`,
+          });
         }
       } catch (err: unknown) {
         if (isMounted) {
@@ -215,7 +245,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       isMounted = false;
     };
-  }, [validateAndEnforceDomainGuard]);
+  }, []);
 
   // Auth State Listener
   useEffect(() => {
@@ -223,31 +253,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        localStorage.removeItem("apollo_dev_user");
-        const isValid = await validateAndEnforceDomainGuard(user);
-        if (!isValid) {
-          setIsLoading(false);
-          setIsAuthenticating(false);
-          return;
-        }
-
         setFirebaseUser(user);
 
-        try {
-          const tokenResult = await user.getIdTokenResult();
-          const customClaims = tokenResult.claims as AuthClaims;
-          setClaims({
-            role: (customClaims.role as UserRole) || undefined,
-            status: (customClaims.status as UserStatus) || undefined,
-          });
-        } catch {
-          setClaims(null);
+        const lowerEmail = (user.email || "").toLowerCase();
+        let fallbackRole: UserRole = "student";
+        if (
+          lowerEmail.includes("admin") ||
+          lowerEmail === "panukurahulbabu@gmail.com" ||
+          lowerEmail === "122411510302@apollouniversity.edu.in" ||
+          lowerEmail === "122411520313@apollouniversity.edu.in"
+        ) {
+          fallbackRole = "admin";
+        } else if (
+          lowerEmail.includes("faculty") ||
+          lowerEmail.includes("dr.") ||
+          lowerEmail.includes("prof")
+        ) {
+          fallbackRole = "faculty";
         }
 
         const userDocRef = doc(db, "users", user.uid);
         unsubscribeProfile = onSnapshot(
           userDocRef,
-          async (docSnap) => {
+          (docSnap) => {
             if (docSnap.exists()) {
               const data = docSnap.data();
               const rawStatus = (data.status || "ACTIVE").toUpperCase();
@@ -255,7 +283,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 uid: data.uid || user.uid,
                 email: data.email || user.email || "",
                 displayName: data.displayName || data.name || user.displayName || "Campus Member",
-                role: (data.role || "student").toLowerCase() as UserRole,
+                role: (data.role || fallbackRole).toLowerCase() as UserRole,
                 status: (rawStatus === "ACTIVE" ? "ACTIVE" : rawStatus === "PENDING" ? "PENDING" : rawStatus === "REJECTED" ? "REJECTED" : "ACTIVE") as UserStatus,
                 department: data.department || "School of Technology",
                 rollNumber: data.rollNumber,
@@ -265,40 +293,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 createdAt: data.createdAt ? (data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt)) : new Date(),
                 updatedAt: new Date(),
               });
+              setClaims({
+                role: (data.role || fallbackRole) as UserRole,
+                status: "ACTIVE",
+              });
             } else {
-              const lowerEmail = (user.email || "").toLowerCase();
-              let fallbackRole: UserRole = "student";
-              if (
-                lowerEmail.includes("admin") ||
-                lowerEmail === "panukurahulbabu@gmail.com" ||
-                lowerEmail === "122411510302@apollouniversity.edu.in" ||
-                lowerEmail === "122411520313@apollouniversity.edu.in"
-              ) {
-                fallbackRole = "admin";
-              } else if (
-                lowerEmail.includes("faculty") ||
-                lowerEmail.includes("dr.") ||
-                lowerEmail.includes("prof")
-              ) {
-                fallbackRole = "faculty";
-              }
-
               const fallbackProfile: User = {
                 uid: user.uid,
                 email: user.email || "",
                 displayName: user.displayName || user.email?.split("@")[0] || "Campus Member",
                 role: fallbackRole,
                 status: "ACTIVE",
-                department: fallbackRole === "admin" ? "General Administration" : "School of Technology",
+                department: fallbackRole === "admin" ? "Institutional Administration" : "School of Technology",
                 onboardingCompleted: true,
                 createdAt: new Date(),
                 updatedAt: new Date(),
               };
               setProfile(fallbackProfile);
+              setClaims({ role: fallbackRole, status: "ACTIVE" });
 
-              try {
-                await setDoc(userDocRef, fallbackProfile, { merge: true });
-              } catch {}
+              setDoc(userDocRef, fallbackProfile, { merge: true }).catch(() => {});
             }
             setIsLoading(false);
           },
@@ -306,23 +320,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsLoading(false);
           }
         );
-
-        if (hasResolvedUserRef.current !== user.uid) {
-          hasResolvedUserRef.current = user.uid;
-          try {
-            const resolveFn = httpsCallable<void, ResolveUserResponse>(functions, "resolveUser");
-            await resolveFn();
-            await refreshClaims();
-          } catch {}
-        }
       } else {
-        const devUser = localStorage.getItem("apollo_dev_user");
-        if (!devUser) {
-          hasResolvedUserRef.current = null;
-          setFirebaseUser(null);
-          setClaims(null);
-          setProfile(null);
-        }
+        setFirebaseUser(null);
+        setClaims(null);
+        setProfile(null);
         if (unsubscribeProfile) {
           unsubscribeProfile();
           unsubscribeProfile = null;
@@ -337,7 +338,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         unsubscribeProfile();
       }
     };
-  }, [validateAndEnforceDomainGuard, refreshClaims]);
+  }, []);
 
   const signInWithMicrosoft = useCallback(async () => {
     setAuthError(null);
@@ -430,8 +431,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn("[Auth] Anonymous sign-in notice:", anonErr);
     }
 
-    localStorage.setItem("apollo_dev_user", JSON.stringify(mockProfile));
-
     const mockFirebaseUser = {
       uid: auth.currentUser?.uid || mockUid,
       email: mockEmail,
@@ -457,7 +456,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = useCallback(async () => {
     try {
-      localStorage.removeItem("apollo_dev_user");
       await firebaseSignOut(auth);
       setFirebaseUser(null);
       setClaims(null);
@@ -498,6 +496,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isAccountActive,
     isAccountBlocked,
     authError,
+    loginWithEmail,
     signInWithMicrosoft,
     signInAsDevUser,
     signOut,
