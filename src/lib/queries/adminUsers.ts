@@ -270,6 +270,8 @@ export function useAdminUsersDirectory(filters?: {
   });
 }
 
+import { safeToDate } from "@/lib/utils";
+
 /**
  * 5. Single User Deep Profile & Dossier Hook
  */
@@ -285,30 +287,77 @@ export function useAdminUserDetail(uid?: string) {
     queryFn: async () => {
       if (!uid) return { user: null, eventsOrganised: [], registrations: [], payments: [] };
 
+      let rawUserData: any = null;
+      let resolvedUid = uid;
+
       const userDocRef = doc(db, "users", uid);
       const userSnap = await getDoc(userDocRef);
-      if (!userSnap.exists()) {
+      if (userSnap.exists()) {
+        rawUserData = userSnap.data();
+      } else {
+        const q = query(collection(db, "users"), where("uid", "==", uid));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          rawUserData = snap.docs[0].data();
+          resolvedUid = snap.docs[0].id;
+        } else {
+          const qEmail = query(collection(db, "users"), where("email", "==", uid.toLowerCase().trim()));
+          const snapEmail = await getDocs(qEmail);
+          if (!snapEmail.empty) {
+            rawUserData = snapEmail.docs[0].data();
+            resolvedUid = snapEmail.docs[0].id;
+          }
+        }
+      }
+
+      if (!rawUserData) {
         return { user: null, eventsOrganised: [], registrations: [], payments: [] };
       }
 
-      const user = userSnap.data() as User;
+      const user: User = {
+        uid: rawUserData.uid || resolvedUid,
+        email: rawUserData.email || "",
+        displayName: rawUserData.displayName || rawUserData.name || rawUserData.email?.split("@")[0] || "Campus Member",
+        role: rawUserData.role || "student",
+        status: rawUserData.status || "ACTIVE",
+        department: rawUserData.department || "School of Technology",
+        designation: rawUserData.designation || "",
+        rollNumber: rawUserData.rollNumber || "",
+        employeeId: rawUserData.employeeId || "",
+        phoneNumber: rawUserData.phoneNumber || rawUserData.phone || "",
+        onboardingCompleted: true,
+        createdAt: rawUserData.createdAt ? safeToDate(rawUserData.createdAt) : new Date(),
+        updatedAt: rawUserData.updatedAt ? safeToDate(rawUserData.updatedAt) : new Date(),
+      };
 
       // Events organised by this user
       const eventsRef = getEventsCollection(db);
-      const eventsQ = query(eventsRef, where("organiserId", "==", uid));
+      const eventsQ = query(eventsRef, where("organiserId", "==", user.uid));
       const eventsSnap = await getDocs(eventsQ);
-      const eventsOrganised = eventsSnap.docs.map((d) => d.data());
+      let eventsOrganised = eventsSnap.docs.map((d) => d.data());
+
+      if (eventsOrganised.length === 0 && user.email) {
+        const eventsQEmail = query(eventsRef, where("organiserEmail", "==", user.email.toLowerCase().trim()));
+        const eventsSnapEmail = await getDocs(eventsQEmail);
+        eventsOrganised = eventsSnapEmail.docs.map((d) => d.data());
+      }
 
       // Registrations
       const regsRef = getRegistrationsCollection(db);
-      const regsQ = query(regsRef, where("userId", "==", uid));
+      const regsQ = query(regsRef, where("userId", "==", user.uid));
       const regsSnap = await getDocs(regsQ);
-      const registrations = regsSnap.docs.map((d) => d.data());
+      let registrations = regsSnap.docs.map((d) => d.data());
+
+      if (registrations.length === 0 && user.email) {
+        const regsQEmail = query(regsRef, where("userEmail", "==", user.email.toLowerCase().trim()));
+        const regsSnapEmail = await getDocs(regsQEmail);
+        registrations = regsSnapEmail.docs.map((d) => d.data());
+      }
 
       // Payments
       const paymentsRef = collection(db, "payments");
-      const paymentsQ = query(paymentsRef, where("userId", "==", uid));
-      const paymentsSnap = await getDocs(paymentsQ);
+      const paymentsQ = query(paymentsRef, where("userId", "==", user.uid));
+      const paymentsSnap = await getDocs(paymentsQ).catch(() => ({ docs: [] }));
       const payments = paymentsSnap.docs.map((d) => d.data());
 
       return {

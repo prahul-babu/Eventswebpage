@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { format } from "date-fns";
 import {
   ArrowLeft,
   User as UserIcon,
@@ -22,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { safeFormatDate } from "@/lib/utils";
 
 export const AdminUserProfilePage: React.FC = () => {
   const { uid } = useParams<{ uid: string }>();
@@ -99,11 +99,11 @@ export const AdminUserProfilePage: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
           <div className="flex items-center gap-5">
             <div className="w-16 h-16 rounded-3xl bg-indigo-900 text-white flex items-center justify-center font-black text-2xl uppercase shadow-md">
-              {user.displayName?.slice(0, 2) || "AP"}
+              {(user.displayName || user.email || "AP").slice(0, 2).toUpperCase()}
             </div>
             <div className="space-y-1">
               <div className="flex items-center gap-3">
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900">{user.displayName}</h1>
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900">{user.displayName || "Campus Member"}</h1>
                 <Badge
                   variant={user.role === "admin" ? "amber" : user.role === "faculty" ? "indigo" : "secondary"}
                   className="text-[10px] font-bold uppercase"
@@ -117,7 +117,7 @@ export const AdminUserProfilePage: React.FC = () => {
                   {user.status}
                 </Badge>
               </div>
-              <p className="text-xs text-slate-500 font-mono">{user.email}</p>
+              <p className="text-xs text-slate-500 font-mono">{user.email || "No email on record"}</p>
             </div>
           </div>
 
@@ -125,13 +125,13 @@ export const AdminUserProfilePage: React.FC = () => {
             <div>
               <span className="text-[10px] text-slate-400 font-bold uppercase block">Joined</span>
               <strong className="text-slate-800">
-                {user.createdAt ? format(new Date(user.createdAt), "MMM d, yyyy") : "N/A"}
+                {safeFormatDate(user.createdAt, "MMM d, yyyy", "N/A")}
               </strong>
             </div>
             <div className="h-8 w-px bg-slate-200" />
             <div>
               <span className="text-[10px] text-slate-400 font-bold uppercase block">UID</span>
-              <strong className="text-slate-800 font-mono">{user.uid.slice(0, 10)}...</strong>
+              <strong className="text-slate-800 font-mono">{(user.uid || "").slice(0, 10)}...</strong>
             </div>
           </div>
         </div>
@@ -251,14 +251,14 @@ export const AdminUserProfilePage: React.FC = () => {
           <div className="divide-y divide-slate-100 text-xs">
             {eventsOrganised.length > 0 ? (
               eventsOrganised.map((ev: any) => (
-                <div key={ev.id} className="p-4 flex items-center justify-between hover:bg-slate-50">
+                <div key={ev.id || Math.random()} className="p-4 flex items-center justify-between hover:bg-slate-50">
                   <div>
-                    <strong className="text-slate-900 text-sm block">{ev.title}</strong>
+                    <strong className="text-slate-900 text-sm block">{ev.title || "Untitled Event"}</strong>
                     <span className="text-[10px] text-slate-400">
-                      {ev.category} &bull; {format(new Date(ev.startAt), "MMM d, yyyy")}
+                      {ev.category || "General"} &bull; {safeFormatDate(ev.startAt, "MMM d, yyyy", "Date TBA")}
                     </span>
                   </div>
-                  <Badge variant="secondary" className="text-[10px]">{ev.status}</Badge>
+                  <Badge variant="secondary" className="text-[10px]">{ev.status || "DRAFT"}</Badge>
                 </div>
               ))
             ) : (
@@ -277,12 +277,12 @@ export const AdminUserProfilePage: React.FC = () => {
           <div className="divide-y divide-slate-100 text-xs">
             {registrations.length > 0 ? (
               registrations.map((reg: any) => (
-                <div key={reg.id} className="p-4 flex items-center justify-between hover:bg-slate-50">
+                <div key={reg.id || Math.random()} className="p-4 flex items-center justify-between hover:bg-slate-50">
                   <div>
                     <strong className="text-slate-900 block">{reg.eventTitle || "Event Booking"}</strong>
-                    <span className="text-[10px] text-slate-400">Ticket: {reg.ticketCode}</span>
+                    <span className="text-[10px] text-slate-400">Ticket: {reg.ticketCode || "N/A"} &bull; {safeFormatDate(reg.registeredAt || reg.createdAt, "MMM d, yyyy", "Registered")}</span>
                   </div>
-                  <Badge variant="emerald" className="text-[10px]">{reg.status}</Badge>
+                  <Badge variant="emerald" className="text-[10px]">{reg.status || "CONFIRMED"}</Badge>
                 </div>
               ))
             ) : (
@@ -301,12 +301,12 @@ export const AdminUserProfilePage: React.FC = () => {
           <div className="divide-y divide-slate-100 text-xs">
             {payments.length > 0 ? (
               payments.map((pm: any) => (
-                <div key={pm.id} className="p-4 flex items-center justify-between hover:bg-slate-50">
+                <div key={pm.id || Math.random()} className="p-4 flex items-center justify-between hover:bg-slate-50">
                   <div>
                     <strong className="text-slate-900 block font-mono">₹{((pm.amount || 0) / 100).toLocaleString()}</strong>
-                    <span className="text-[10px] text-slate-400">Order: {pm.orderId}</span>
+                    <span className="text-[10px] text-slate-400">Order: {pm.orderId || "N/A"}</span>
                   </div>
-                  <Badge variant="emerald" className="text-[10px]">{pm.status}</Badge>
+                  <Badge variant="emerald" className="text-[10px]">{pm.status || "SUCCESS"}</Badge>
                 </div>
               ))
             ) : (

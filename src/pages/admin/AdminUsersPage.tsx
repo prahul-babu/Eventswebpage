@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { format } from "date-fns";
 import {
   Search,
   Download,
@@ -44,6 +43,7 @@ import {
 } from "@/components/ui/dialog";
 import { User, UserRole, UserStatus } from "@/types";
 import { toast } from "sonner";
+import { safeFormatDate } from "@/lib/utils";
 
 export const AdminUsersPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -80,13 +80,13 @@ export const AdminUsersPage: React.FC = () => {
     const headers = ["UID", "Name", "Email", "Role", "Department", "Roll/Employee ID", "Status", "Joined"];
     const rows = users.map((u) => [
       u.uid,
-      `"${u.displayName.replace(/"/g, '""')}"`,
+      `"${(u.displayName || "").replace(/"/g, '""')}"`,
       `"${u.email}"`,
       u.role,
       `"${u.department || "General"}"`,
       `"${u.rollNumber || u.employeeId || "N/A"}"`,
       u.status,
-      u.createdAt ? format(new Date(u.createdAt), "yyyy-MM-dd") : "N/A",
+      safeFormatDate(u.createdAt, "yyyy-MM-dd", "N/A"),
     ]);
 
     const csvContent =
@@ -96,7 +96,7 @@ export const AdminUsersPage: React.FC = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Apollo_Users_Directory_${format(new Date(), "yyyyMMdd")}.csv`);
+    link.setAttribute("download", `Apollo_Users_Directory_${safeFormatDate(new Date(), "yyyyMMdd")}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -304,7 +304,7 @@ export const AdminUsersPage: React.FC = () => {
                       <td className="p-4 whitespace-nowrap">{getStatusBadge(user.status)}</td>
 
                       <td className="p-4 whitespace-nowrap text-slate-500">
-                        {user.createdAt ? format(new Date(user.createdAt), "MMM d, yyyy") : "N/A"}
+                        {safeFormatDate(user.createdAt, "MMM d, yyyy", "N/A")}
                       </td>
 
                       <td className="p-4 text-right whitespace-nowrap">

@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { format } from "date-fns";
 import {
   Search,
   Download,
@@ -21,8 +20,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { NAAC_CRITERIA, EventReportStatus, EventReport } from "@/types";
+import type { EventReport } from "@/types";
+import { NAAC_CRITERIA, EventReportStatus } from "@/types";
 import { toast } from "sonner";
+import { safeFormatDate } from "@/lib/utils";
 
 export const AdminReportsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -86,7 +87,7 @@ export const AdminReportsPage: React.FC = () => {
     const rows = filteredReports.map((r) => [
       `"${r.eventTitle.replace(/"/g, '""')}"`,
       `"${r.department}"`,
-      format(new Date(r.eventDate), "yyyy-MM-dd"),
+      safeFormatDate(r.eventDate, "yyyy-MM-dd", "N/A"),
       r.category,
       `"${r.organiserName}"`,
       r.participation.registeredCount,
@@ -107,7 +108,7 @@ export const AdminReportsPage: React.FC = () => {
     link.setAttribute("href", encodedUri);
     link.setAttribute(
       "download",
-      `Apollo_University_NAAC_Accreditation_Report_${format(new Date(), "yyyyMMdd")}.csv`
+      `Apollo_University_NAAC_Accreditation_Report_${safeFormatDate(new Date(), "yyyyMMdd")}.csv`
     );
     document.body.appendChild(link);
     link.click();
@@ -274,7 +275,7 @@ export const AdminReportsPage: React.FC = () => {
                       </td>
 
                       <td className="p-4 whitespace-nowrap text-slate-500">
-                        {format(new Date(report.eventDate), "MMM d, yyyy")}
+                        {safeFormatDate(report.eventDate, "MMM d, yyyy", "Date TBA")}
                       </td>
 
                       <td className="p-4 max-w-[200px] truncate text-indigo-900 font-medium">
