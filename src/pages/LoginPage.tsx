@@ -3,8 +3,9 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import {
   createUserWithEmailAndPassword,
   updateProfile,
+  sendPasswordResetEmail,
 } from "firebase/auth";
-import { doc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useAuth, getPostLoginRoute } from "@/lib/auth-context";
 import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
@@ -83,6 +84,7 @@ export const LoginPage: React.FC = () => {
   const [rememberMe, setRememberMe] = useState(true);
   const [signInError, setSignInError] = useState<{ message: string; notRegistered?: boolean } | null>(null);
   const [signUpSuccessNotice, setSignUpSuccessNotice] = useState<string | null>(null);
+  const [resetSentNotice, setResetSentNotice] = useState<string | null>(null);
 
   // Sign Up Form State
   const [signUpRole, setSignUpRole] = useState<"student" | "faculty">("student");
@@ -115,6 +117,7 @@ export const LoginPage: React.FC = () => {
     clearAuthError();
     setSignInError(null);
     setSignUpSuccessNotice(null);
+    setResetSentNotice(null);
     try {
       await signInWithMicrosoft();
     } catch (err: any) {
@@ -123,15 +126,39 @@ export const LoginPage: React.FC = () => {
   };
 
   /**
+   * FORGOT PASSWORD:
+   * Sends a password reset email via Firebase Auth.
+   */
+  const handleForgotPassword = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    setSignInError(null);
+    setResetSentNotice(null);
+    const trimmedEmail = email.toLowerCase().trim();
+    if (!trimmedEmail) {
+      setSignInError({ message: "Please enter your email address in the Email field above to reset your password." });
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, trimmedEmail);
+      setResetSentNotice(`Password reset link dispatched to ${trimmedEmail}. Please check your inbox and spam folder.`);
+      toast.success("Reset Email Sent", {
+        description: `Check your inbox at ${trimmedEmail} for password reset instructions.`,
+      });
+    } catch (err: any) {
+      setSignInError({ message: err.message || "Failed to dispatch password reset email." });
+    }
+  };
+
+  /**
    * SIGN IN:
    * Validates account in Firebase & routes to destination.
-   * If not registered, displays account not found alert.
    */
   const handleDirectSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     clearAuthError();
     setSignInError(null);
     setSignUpSuccessNotice(null);
+    setResetSentNotice(null);
 
     const trimmedEmail = email.toLowerCase().trim();
     const trimmedPassword = password.trim();
@@ -156,14 +183,14 @@ export const LoginPage: React.FC = () => {
 
       const code = firebaseErr.code || "";
 
-      if (code === "auth/user-not-found" || code === "auth/invalid-credential") {
+      if (code === "auth/invalid-credential" || code === "auth/wrong-password") {
         setSignInError({
-          message: "No account found with this email. You must Sign Up first before you can Sign In.",
-          notRegistered: true,
+          message: "Incorrect password or invalid credentials. If you previously registered using Microsoft Outlook, please click 'Continue with Microsoft Outlook' below.",
         });
-      } else if (code === "auth/wrong-password") {
+      } else if (code === "auth/user-not-found") {
         setSignInError({
-          message: "Incorrect password. Please verify your credentials and try again.",
+          message: "No account found with this email. Please click Sign Up to register your account, or click 'Continue with Microsoft Outlook' below.",
+          notRegistered: true,
         });
       } else if (code === "auth/invalid-email") {
         setSignInError({
@@ -171,7 +198,7 @@ export const LoginPage: React.FC = () => {
         });
       } else if (code === "auth/too-many-requests") {
         setSignInError({
-          message: "Access temporarily blocked due to multiple failed attempts. Please try again later.",
+          message: "Access temporarily blocked due to multiple failed attempts. Please reset your password or try again in a few minutes.",
         });
       } else {
         setSignInError({
@@ -185,15 +212,15 @@ export const LoginPage: React.FC = () => {
 
   /**
    * SIGN UP:
-   * 1. If email already in use, shows warning alert.
-   * 2. If valid, creates account, saves Firestore document, signs out,
-   *    and redirects back to Sign In tab with a success pop-up notice.
+   * 1. Creates account in Firebase Auth
+   * 2. Saves Firestore document and seamlessly routes to destination portal
    */
   const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearAuthError();
     setSignUpError(null);
     setSignInError(null);
+    setResetSentNotice(null);
 
     const trimmedName = signUpName.trim();
     const trimmedEmail = signUpEmail.toLowerCase().trim();
@@ -225,18 +252,6 @@ export const LoginPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      // 0. Enforce Unique Email: Check if email is already registered across any role
-      const usersRef = collection(db, "users");
-      const existingEmailQ = query(usersRef, where("email", "==", trimmedEmail));
-      const existingSnap = await getDocs(existingEmailQ);
-      if (!existingSnap.empty) {
-        setSignUpError(
-          "An account with this email address already exists. Please switch to the Sign In tab."
-        );
-        setIsSubmitting(false);
-        return;
-      }
-
       // 1. Create User in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(
         auth,
@@ -386,6 +401,16 @@ export const LoginPage: React.FC = () => {
                   </Alert>
                 )}
 
+                {resetSentNotice && (
+                  <Alert className="py-2.5 text-xs border-indigo-300 bg-indigo-50 text-indigo-900">
+                    <CheckCircle2 className="h-4 w-4 text-indigo-600" />
+                    <AlertTitle className="font-bold text-xs text-indigo-800">Password Reset Dispatched</AlertTitle>
+                    <AlertDescription className="text-[11px] mt-0.5 text-indigo-700">
+                      {resetSentNotice}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 {signInError && (
                   <Alert variant="destructive" className="py-2.5 text-xs border-red-200 bg-red-50 text-red-900">
                     <ShieldAlert className="h-4 w-4 text-red-600" />
@@ -484,9 +509,13 @@ export const LoginPage: React.FC = () => {
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-bold text-slate-700">Password</Label>
-                    <a href="#forgot" className="text-[11px] font-semibold text-[#007A99] hover:underline">
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      className="text-[11px] font-semibold text-[#007A99] hover:underline"
+                    >
                       Forgot password?
-                    </a>
+                    </button>
                   </div>
                   <div className="relative">
                     <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
