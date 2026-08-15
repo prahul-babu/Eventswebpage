@@ -10,12 +10,11 @@ import {
   User as FirebaseUser,
   OAuthProvider,
   signInWithPopup,
-  signInWithRedirect,
   getRedirectResult,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
   signInWithEmailAndPassword,
   signInAnonymously,
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
   IdTokenResult,
   Unsubscribe,
 } from "firebase/auth";
@@ -108,12 +107,7 @@ export interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const isMobileDevice = (): boolean => {
-  if (typeof window === "undefined" || !navigator) return false;
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-    navigator.userAgent
-  );
-};
+
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -438,12 +432,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        console.log("AUTH STATE:", {
-          uid: user?.uid,
-          email: user?.email,
-          provider: user?.providerData?.map((p) => p.providerId),
-        });
-
+        console.log("AUTH USER:", user?.uid, user?.email);
         setFirebaseUser(user);
 
         const lowerEmail = (user.email || "").toLowerCase();
@@ -466,7 +455,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           fallbackStatus = "PENDING";
         }
 
-        console.log("FIRESTORE USER PATH:", `users/${user.uid}`);
         const userDocRef = doc(db, "users", user.uid);
 
         unsubscribeProfile = onSnapshot(
@@ -475,7 +463,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             let userData: any = null;
             if (docSnap.exists()) {
               userData = docSnap.data();
-              console.log("FIRESTORE USER DATA:", userData);
+              console.log("USER DOCUMENT:", userData);
+              console.log("ROLE:", userData?.role);
+              console.log("STATUS:", userData?.status);
 
               const parsedRole = (userData.role || fallbackRole).toLowerCase() as UserRole;
               const rawStatus = (userData.status || "ACTIVE").toUpperCase();
@@ -518,7 +508,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 status: parsedStatus,
               });
             } else {
-              console.log("FIRESTORE USER DATA: (Document does not exist yet)");
+              console.log("USER DOCUMENT: (None found, auto-creating for UID)", user.uid);
+              console.log("ROLE:", fallbackRole);
+              console.log("STATUS:", fallbackStatus);
+
               const fallbackProfile: User = {
                 uid: user.uid,
                 email: user.email || "",
@@ -549,7 +542,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           }
         );
       } else {
-        console.log("AUTH STATE: (No active user)");
+        console.log("AUTH USER: (null)");
+        console.log("USER DOCUMENT: (null)");
+        console.log("ROLE: (null)");
+        console.log("STATUS: (null)");
         setFirebaseUser(null);
         setClaims(null);
         setProfile(null);
@@ -569,7 +565,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     };
   }, []);
 
-  // Microsoft OAuth Login (Single tenant configuration preserved)
+  // Microsoft OAuth Login (Using Pure signInWithPopup per instructions)
   const signInWithMicrosoft = useCallback(async (): Promise<{
     user: FirebaseUser;
     role: UserRole;
@@ -585,39 +581,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         prompt: "select_account",
       });
 
-      let userCredential;
-      if (isMobileDevice()) {
-        await signInWithRedirect(auth, provider);
-        return new Promise(() => {});
-      }
-
-      try {
-        userCredential = await signInWithPopup(auth, provider);
-      } catch (popupError: any) {
-        if (
-          popupError.code === "auth/popup-blocked" ||
-          popupError.code === "auth/cancelled-popup-request"
-        ) {
-          await signInWithRedirect(auth, provider);
-          return new Promise(() => {});
-        }
-        if (popupError.code === "auth/popup-closed-by-user") {
-          throw popupError;
-        }
-        throw popupError;
-      }
-
+      // Pure popup authentication - correctly awaited
+      const userCredential = await signInWithPopup(auth, provider);
       const user = userCredential.user;
-      console.log("AUTH STATE:", {
-        uid: user?.uid,
-        email: user?.email,
-        provider: user?.providerData?.map((p) => p.providerId),
-      });
 
+      console.log("AUTH USER:", user?.uid, user?.email);
       setFirebaseUser(user);
 
-      // Read Firestore: users/{user.uid}
-      console.log("FIRESTORE USER PATH:", `users/${user.uid}`);
+      // Read Firestore: users/{user.uid} (Doc ID is user.uid)
       const userDocRef = doc(db, "users", user.uid);
       let userData: any = null;
       try {
@@ -628,7 +599,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       } catch (e) {
         console.warn("[Auth] Firestore read error:", e);
       }
-      console.log("FIRESTORE USER DATA:", userData);
+
+      console.log("USER DOCUMENT:", userData);
+      console.log("ROLE:", userData?.role);
+      console.log("STATUS:", userData?.status);
 
       const lowerEmail = (user.email || "").toLowerCase();
       let effectiveRole: UserRole = "student";
@@ -651,7 +625,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           ) as UserStatus;
         }
       } else {
-        // Fallback if doc is not in Firestore:
+        // If Firestore document doesn't exist yet, do NOT send user to /login:
         if (
           lowerEmail.includes("admin") ||
           lowerEmail === "panukurahulbabu@gmail.com" ||
@@ -708,14 +682,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       return { user, role: effectiveRole, status: effectiveStatus };
     } catch (err: any) {
       if (err.code !== "auth/popup-closed-by-user") {
-        setAuthError(err.message || "Failed to authenticate with Microsoft");
-        toast.error("Sign In Error", { description: err.message });
+        setAuthError(err.message || "Failed to sign in with Microsoft");
       }
       throw err;
     } finally {
       setIsAuthenticating(false);
     }
   }, []);
+
 
   const signInAsDevUser = useCallback(async (devRole: UserRole) => {
     setAuthError(null);
@@ -790,10 +764,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const signOut = useCallback(async () => {
     try {
-      console.error("REDIRECTING TO LOGIN:", {
+      console.error("LOGIN REDIRECT TRIGGERED", {
         reason: "User initiated signOut",
-        firebaseUser: auth.currentUser?.uid || null,
-        email: auth.currentUser?.email || null,
+        uid: auth.currentUser?.uid,
+        email: auth.currentUser?.email,
+      });
+      console.error("WHY LOGIN:", {
+        uid: auth.currentUser?.uid,
+        email: auth.currentUser?.email,
+        role: profile?.role || null,
+        status: status,
       });
       await firebaseSignOut(auth);
       setFirebaseUser(null);

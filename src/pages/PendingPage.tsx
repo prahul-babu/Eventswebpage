@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { Link, useNavigate, Navigate } from "react-router-dom";
 import { useAuth, getPostLoginRoute } from "@/lib/auth-context";
+import { auth } from "@/lib/firebase";
 import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,10 +32,16 @@ export const PendingPage: React.FC = () => {
 
   // If unauthenticated, redirect to login
   if (!isAuthenticated || !firebaseUser) {
-    console.error("REDIRECTING TO LOGIN:", {
+    console.error("LOGIN REDIRECT TRIGGERED", {
       reason: "Unauthenticated access on /pending",
-      firebaseUser: firebaseUser?.uid || null,
-      email: firebaseUser?.email || null,
+      uid: auth.currentUser?.uid || null,
+      email: auth.currentUser?.email || null,
+    });
+    console.error("WHY LOGIN:", {
+      uid: auth.currentUser?.uid || null,
+      email: auth.currentUser?.email || null,
+      role: role,
+      status: status,
     });
     return <Navigate to="/login" replace />;
   }

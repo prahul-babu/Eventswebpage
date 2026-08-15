@@ -3,6 +3,7 @@ import { useNavigate, Navigate } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/lib/auth-context";
+import { auth } from "@/lib/firebase";
 import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
 import {
   requestAccessSchema,
@@ -67,10 +68,16 @@ export const OnboardingPage: React.FC = () => {
 
   // If unauthenticated, redirect to login
   if (!isAuthenticated || !firebaseUser) {
-    console.error("REDIRECTING TO LOGIN:", {
+    console.error("LOGIN REDIRECT TRIGGERED", {
       reason: "Unauthenticated access on /onboarding",
-      firebaseUser: firebaseUser?.uid || null,
-      email: firebaseUser?.email || null,
+      uid: auth.currentUser?.uid || null,
+      email: auth.currentUser?.email || null,
+    });
+    console.error("WHY LOGIN:", {
+      uid: auth.currentUser?.uid || null,
+      email: auth.currentUser?.email || null,
+      role: profile?.role || null,
+      status: status,
     });
     return <Navigate to="/login" replace />;
   }
