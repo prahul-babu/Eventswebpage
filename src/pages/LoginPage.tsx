@@ -87,6 +87,8 @@ export const LoginPage: React.FC = () => {
   const [signUpName, setSignUpName] = useState("");
   const [signUpBranch, setSignUpBranch] = useState(BTECH_BRANCHES[0]);
   const [signUpFacultyDept, setSignUpFacultyDept] = useState(FACULTY_DEPARTMENTS[0]);
+  const [signUpDesignation, setSignUpDesignation] = useState("Assistant Professor");
+  const [signUpMobile, setSignUpMobile] = useState("");
   const [signUpRollNo, setSignUpRollNo] = useState("");
   const [signUpEmpId, setSignUpEmpId] = useState("");
   const [signUpEmail, setSignUpEmail] = useState("");
@@ -270,13 +272,23 @@ export const LoginPage: React.FC = () => {
         displayName: trimmedName,
         role: signUpRole,
         department: signUpRole === "student" ? signUpBranch : signUpFacultyDept,
+        school: "School of Technology",
+        designation: signUpRole === "faculty" ? (signUpDesignation || "Assistant Professor") : undefined,
+        phoneNumber: signUpMobile.trim() || undefined,
         rollNumber: signUpRole === "student" ? signUpRollNo.trim().toUpperCase() : undefined,
         employeeId: signUpRole === "faculty" ? signUpEmpId.trim().toUpperCase() : undefined,
       });
 
-      toast.success("Account Created Successfully!", {
-        description: `Welcome to Apollo Event Hub, ${trimmedName}! Signed in as ${role.toUpperCase()}.`,
-      });
+      if (signUpRole === "faculty") {
+        toast.success("Faculty Registration Submitted", {
+          description:
+            "Your account is currently pending administrator approval. You will receive an email once your Apollo University faculty account has been approved.",
+        });
+      } else {
+        toast.success("Account Created Successfully!", {
+          description: `Welcome to Apollo Event Hub, ${trimmedName}! Signed in as ${role.toUpperCase()}.`,
+        });
+      }
 
       const destination = getPostLoginRoute(role, status);
       navigate(destination);
@@ -673,20 +685,33 @@ export const LoginPage: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    <div className="space-y-1">
-                      <Label className="text-xs font-bold text-slate-700">Department</Label>
-                      <Select value={signUpFacultyDept} onValueChange={setSignUpFacultyDept}>
-                        <SelectTrigger className="h-9 text-xs rounded-xl">
-                          <SelectValue placeholder="Select Department" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {FACULTY_DEPARTMENTS.map((d) => (
-                            <SelectItem key={d} value={d} className="text-xs">
-                              {d}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs font-bold text-slate-700">Department</Label>
+                        <Select value={signUpFacultyDept} onValueChange={setSignUpFacultyDept}>
+                          <SelectTrigger className="h-9 text-xs rounded-xl">
+                            <SelectValue placeholder="Select Department" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {FACULTY_DEPARTMENTS.map((d) => (
+                              <SelectItem key={d} value={d} className="text-xs">
+                                {d}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs font-bold text-slate-700">Designation</Label>
+                        <Input
+                          autoComplete="off"
+                          value={signUpDesignation}
+                          onChange={(e) => setSignUpDesignation(e.target.value)}
+                          placeholder="Assistant Professor"
+                          className="h-9 text-xs rounded-xl"
+                        />
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
@@ -706,20 +731,32 @@ export const LoginPage: React.FC = () => {
                       </div>
 
                       <div className="space-y-1">
-                        <Label className="text-xs font-bold text-slate-700">Email Address</Label>
+                        <Label className="text-xs font-bold text-slate-700">Mobile Number</Label>
                         <Input
-                          type="email"
-                          required
+                          type="tel"
                           autoComplete="off"
-                          value={signUpEmail}
-                          onChange={(e) => {
-                            setSignUpEmail(e.target.value);
-                            if (signUpError) setSignUpError(null);
-                          }}
-                          placeholder="faculty@apollouniversity.edu.in"
+                          value={signUpMobile}
+                          onChange={(e) => setSignUpMobile(e.target.value)}
+                          placeholder="+91 98765 43210"
                           className="h-9 text-xs rounded-xl font-mono"
                         />
                       </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs font-bold text-slate-700">Official Faculty Email</Label>
+                      <Input
+                        type="email"
+                        required
+                        autoComplete="off"
+                        value={signUpEmail}
+                        onChange={(e) => {
+                          setSignUpEmail(e.target.value);
+                          if (signUpError) setSignUpError(null);
+                        }}
+                        placeholder="faculty@apollouniversity.edu.in"
+                        className="h-9 text-xs rounded-xl font-mono"
+                      />
                     </div>
                   </>
                 )}

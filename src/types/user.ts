@@ -168,6 +168,8 @@ export interface User {
   fcmTokens?: string[];
 
   // Admin Approval Audit
+  accountStatus?: string;
+  approvalStatus?: string;
   approvedBy?: string;
   approvedAt?: Date;
   rejectionReason?: string;

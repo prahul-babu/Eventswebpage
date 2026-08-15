@@ -12,14 +12,15 @@ import {
   limit,
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
-import { db, functions } from "@/lib/firebase";
+import { db, functions, auth } from "@/lib/firebase";
 import {
   getUsersCollection,
   getEventsCollection,
   getRegistrationsCollection,
 } from "@/lib/converters";
-import type { User, UserRole, UserStatus } from "@/types";
+import type { User, UserRole, UserStatus, FacultyApplication } from "@/types";
 import { toast } from "sonner";
+import { logAuditEvent } from "@/lib/audit";
 
 export interface SystemConfig {
   academicYear: string;
@@ -113,6 +114,14 @@ export function useAdminDashboardMetrics() {
         console.warn("[useAdminDashboardMetrics] reports count notice:", err);
       }
 
+      let pendingFacultyAppsCount = 0;
+      try {
+        const appsSnap = await getDocs(query(collection(db, "facultyApplications"), where("status", "==", "pending")));
+        pendingFacultyAppsCount = appsSnap.size;
+      } catch (err) {
+        console.warn("[useAdminDashboardMetrics] faculty applications count notice:", err);
+      }
+
       // Real Monthly Events & Registrations Aggregation (Trailing 6 Months):
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       const now = new Date();
@@ -163,6 +172,8 @@ export function useAdminDashboardMetrics() {
         adminCount,
         pendingUsersCount,
         pendingEventsCount,
+        pendingFacultyAppsCount,
+        totalPendingApprovals: pendingEventsCount + pendingFacultyAppsCount,
         publishedEventsCount,
         totalRegistrations: confirmedRegs.length,
         totalRevenue,
@@ -625,6 +636,327 @@ export function useUpdateSystemConfig() {
     },
     onError: (err) => {
       toast.error("Update Failed", { description: err.message || "Failed to save configuration." });
+    },
+  });
+}
+
+/**
+ * 9. Faculty Applications Queries & Approval Mutations
+ */
+export function usePendingFacultyApplications() {
+  return useQuery<FacultyApplication[]>({
+    queryKey: ["admin", "faculty-applications", "pending"],
+    queryFn: async () => {
+      try {
+        const appsRef = collection(db, "facultyApplications");
+        const q = query(appsRef, where("status", "==", "pending"));
+        const snap = await getDocs(q);
+
+        const list: FacultyApplication[] = snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            applicationId: data.applicationId || d.id,
+            uid: data.uid,
+            fullName: data.fullName || data.displayName || data.name || "Faculty Applicant",
+            officialEmail: data.officialEmail || data.email || "",
+            mobileNumber: data.mobileNumber || data.phoneNumber || data.phone || "",
+            employeeId: data.employeeId || "",
+            department: data.department || "School of Technology",
+            school: data.school || "School of Technology",
+            designation: data.designation || "Assistant Professor",
+            alternateEmail: data.alternateEmail || "",
+            role: "faculty",
+            status: data.status || "pending",
+            submittedAt: data.submittedAt ? safeToDate(data.submittedAt) : new Date(),
+            reviewedAt: data.reviewedAt ? safeToDate(data.reviewedAt) : null,
+            reviewedBy: data.reviewedBy || null,
+            rejectionReason: data.rejectionReason || null,
+          };
+        });
+
+        const existingEmails = new Set(list.map((a) => a.officialEmail.toLowerCase().trim()));
+        const usersSnap = await getDocs(
+          query(collection(db, "users"), where("role", "==", "faculty"), where("status", "==", "PENDING"))
+        );
+
+        usersSnap.docs.forEach((d) => {
+          const u = d.data();
+          const email = (u.email || "").toLowerCase().trim();
+          if (email && !existingEmails.has(email)) {
+            list.push({
+              id: d.id,
+              applicationId: `fapp_user_${d.id}`,
+              uid: d.id,
+              fullName: u.displayName || u.name || "Faculty Member",
+              officialEmail: u.email,
+              mobileNumber: u.phoneNumber || u.phone || "",
+              employeeId: u.employeeId || "",
+              department: u.department || "School of Technology",
+              school: (u as any).school || "School of Technology",
+              designation: u.designation || "Assistant Professor",
+              alternateEmail: (u as any).alternateEmail || "",
+              role: "faculty",
+              status: "pending",
+              submittedAt: u.createdAt ? safeToDate(u.createdAt) : new Date(),
+              reviewedAt: null,
+              reviewedBy: null,
+              rejectionReason: null,
+            });
+            existingEmails.add(email);
+          }
+        });
+
+        return list.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
+      } catch (err) {
+        console.warn("[usePendingFacultyApplications] notice:", err);
+        return [];
+      }
+    },
+    staleTime: 1000 * 15,
+  });
+}
+
+export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "approved" | "rejected") {
+  return useQuery<FacultyApplication[]>({
+    queryKey: ["admin", "faculty-applications", statusFilter],
+    queryFn: async () => {
+      try {
+        const appsRef = collection(db, "facultyApplications");
+        const snap = await getDocs(appsRef);
+
+        let list: FacultyApplication[] = snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            applicationId: data.applicationId || d.id,
+            uid: data.uid,
+            fullName: data.fullName || data.displayName || data.name || "Faculty Applicant",
+            officialEmail: data.officialEmail || data.email || "",
+            mobileNumber: data.mobileNumber || data.phoneNumber || data.phone || "",
+            employeeId: data.employeeId || "",
+            department: data.department || "School of Technology",
+            school: data.school || "School of Technology",
+            designation: data.designation || "Assistant Professor",
+            alternateEmail: data.alternateEmail || "",
+            role: "faculty",
+            status: data.status || "pending",
+            submittedAt: data.submittedAt ? safeToDate(data.submittedAt) : new Date(),
+            reviewedAt: data.reviewedAt ? safeToDate(data.reviewedAt) : null,
+            reviewedBy: data.reviewedBy || null,
+            rejectionReason: data.rejectionReason || null,
+          };
+        });
+
+        const existingEmails = new Set(list.map((a) => a.officialEmail.toLowerCase().trim()));
+        const usersSnap = await getDocs(query(collection(db, "users"), where("role", "==", "faculty")));
+
+        usersSnap.docs.forEach((d) => {
+          const u = d.data();
+          const email = (u.email || "").toLowerCase().trim();
+          if (email && !existingEmails.has(email)) {
+            const st = u.status === "ACTIVE" ? "approved" : u.status === "REJECTED" ? "rejected" : "pending";
+            list.push({
+              id: d.id,
+              applicationId: `fapp_user_${d.id}`,
+              uid: d.id,
+              fullName: u.displayName || u.name || "Faculty Member",
+              officialEmail: u.email,
+              mobileNumber: u.phoneNumber || u.phone || "",
+              employeeId: u.employeeId || "",
+              department: u.department || "School of Technology",
+              school: (u as any).school || "School of Technology",
+              designation: u.designation || "Assistant Professor",
+              alternateEmail: (u as any).alternateEmail || "",
+              role: "faculty",
+              status: st as any,
+              submittedAt: u.createdAt ? safeToDate(u.createdAt) : new Date(),
+              reviewedAt: (u as any).approvedAt ? safeToDate((u as any).approvedAt) : null,
+              reviewedBy: (u as any).approvedBy || null,
+              rejectionReason: (u as any).rejectionReason || null,
+            });
+            existingEmails.add(email);
+          }
+        });
+
+        if (statusFilter && statusFilter !== "ALL") {
+          list = list.filter((a) => a.status === statusFilter);
+        }
+
+        return list.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
+      } catch (err) {
+        console.warn("[useAllFacultyApplications] notice:", err);
+        return [];
+      }
+    },
+    staleTime: 1000 * 30,
+  });
+}
+
+export function useApproveFacultyApplication() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    { success: boolean; applicationId: string; email: string },
+    Error,
+    { applicationId: string; uid?: string; email: string; fullName?: string }
+  >({
+    mutationFn: async ({ applicationId, uid, email, fullName }) => {
+      const adminUid = auth.currentUser?.uid || "admin";
+      const appRef = doc(db, "facultyApplications", applicationId);
+      const appSnap = await getDoc(appRef);
+      const appData = appSnap.exists() ? appSnap.data() : null;
+
+      // 1. Update application status
+      await setDoc(
+        appRef,
+        {
+          status: "approved",
+          reviewedAt: new Date(),
+          reviewedBy: adminUid,
+        },
+        { merge: true }
+      );
+
+      // 2. Resolve target UID & update user document in users/{uid}
+      let targetUid = uid || appData?.uid;
+      if (!targetUid && email) {
+        const usersSnap = await getDocs(query(collection(db, "users"), where("email", "==", email.toLowerCase().trim())));
+        if (!usersSnap.empty) {
+          targetUid = usersSnap.docs[0].id;
+        }
+      }
+
+      if (targetUid) {
+        const userRef = doc(db, "users", targetUid);
+        await setDoc(
+          userRef,
+          {
+            role: "faculty",
+            status: "ACTIVE",
+            accountStatus: "active",
+            approvalStatus: "approved",
+            approvedAt: new Date(),
+            approvedBy: adminUid,
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        );
+      }
+
+      // 3. Log immutable audit trail
+      logAuditEvent({
+        action: "FACULTY_APPROVED",
+        targetType: "USER",
+        targetId: targetUid || applicationId,
+        actorUid: adminUid,
+        actorEmail: auth.currentUser?.email || "",
+        actorRole: "ADMIN",
+        details: {
+          applicationId,
+          officialEmail: email,
+          fullName: fullName || appData?.fullName,
+          employeeId: appData?.employeeId,
+          department: appData?.department,
+        },
+      });
+
+      return { success: true, applicationId, email };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "faculty-applications"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "access-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "users-directory"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard-metrics"] });
+
+      toast.success("Faculty Account Approved", {
+        description: `Approval confirmed for ${data.email}. Faculty member can now sign in.`,
+      });
+    },
+    onError: (err) => {
+      toast.error("Approval Failed", { description: err.message || "Unable to approve faculty account." });
+    },
+  });
+}
+
+export function useRejectFacultyApplication() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    { success: boolean; applicationId: string; email: string },
+    Error,
+    { applicationId: string; uid?: string; email: string; reason?: string }
+  >({
+    mutationFn: async ({ applicationId, uid, email, reason }) => {
+      const adminUid = auth.currentUser?.uid || "admin";
+      const appRef = doc(db, "facultyApplications", applicationId);
+      const appSnap = await getDoc(appRef);
+      const appData = appSnap.exists() ? appSnap.data() : null;
+
+      // 1. Update application status
+      await setDoc(
+        appRef,
+        {
+          status: "rejected",
+          rejectionReason: reason || "Did not meet institutional criteria",
+          reviewedAt: new Date(),
+          reviewedBy: adminUid,
+        },
+        { merge: true }
+      );
+
+      // 2. Resolve target UID & update user document
+      let targetUid = uid || appData?.uid;
+      if (!targetUid && email) {
+        const usersSnap = await getDocs(query(collection(db, "users"), where("email", "==", email.toLowerCase().trim())));
+        if (!usersSnap.empty) {
+          targetUid = usersSnap.docs[0].id;
+        }
+      }
+
+      if (targetUid) {
+        const userRef = doc(db, "users", targetUid);
+        await setDoc(
+          userRef,
+          {
+            status: "REJECTED",
+            accountStatus: "rejected",
+            rejectionReason: reason || "Did not meet institutional criteria",
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        );
+      }
+
+      // 3. Log immutable audit trail
+      logAuditEvent({
+        action: "FACULTY_REJECTED",
+        targetType: "USER",
+        targetId: targetUid || applicationId,
+        actorUid: adminUid,
+        actorEmail: auth.currentUser?.email || "",
+        actorRole: "ADMIN",
+        details: {
+          applicationId,
+          officialEmail: email,
+          rejectionReason: reason,
+        },
+      });
+
+      return { success: true, applicationId, email };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "faculty-applications"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "access-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "users-directory"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard-metrics"] });
+
+      toast.info("Faculty Application Rejected", {
+        description: `Application for ${data.email} marked as rejected.`,
+      });
+    },
+    onError: (err) => {
+      toast.error("Rejection Failed", { description: err.message || "Unable to reject application." });
     },
   });
 }

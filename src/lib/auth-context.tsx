@@ -101,6 +101,10 @@ export interface AuthContextValue {
     displayName: string;
     role: UserRole;
     department: string;
+    school?: string;
+    designation?: string;
+    phoneNumber?: string;
+    alternateEmail?: string;
     rollNumber?: string;
     employeeId?: string;
   }) => Promise<{ user: FirebaseUser; role: UserRole; status: UserStatus }>;
@@ -438,6 +442,10 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
       displayName: string;
       role: UserRole;
       department: string;
+      school?: string;
+      designation?: string;
+      phoneNumber?: string;
+      alternateEmail?: string;
       rollNumber?: string;
       employeeId?: string;
     }): Promise<{ user: FirebaseUser; role: UserRole; status: UserStatus }> => {
@@ -448,7 +456,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
       const trimmedEmail = payload.email.toLowerCase().trim();
       const trimmedName = payload.displayName.trim();
       const effRole: UserRole = (payload.role || "student").toLowerCase() as UserRole;
-      const effStatus: UserStatus = "ACTIVE";
+      const effStatus: UserStatus = effRole === "faculty" ? "PENDING" : "ACTIVE";
 
       // 1. Immediately cache the authoritative selected role
       persistUserRole(effRole, effStatus);
@@ -471,30 +479,62 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
 
         setFirebaseUser(user);
 
-        // 4. Construct complete authoritative profile
+        // 4. If faculty, register in facultyApplications
+        if (effRole === "faculty") {
+          const appId = `fapp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          await setDoc(doc(db, "facultyApplications", appId), {
+            id: appId,
+            applicationId: appId,
+            uid: user.uid,
+            fullName: trimmedName,
+            officialEmail: trimmedEmail,
+            mobileNumber: payload.phoneNumber || "",
+            employeeId: payload.employeeId ? payload.employeeId.trim().toUpperCase() : "",
+            department: payload.department || "School of Technology",
+            school: payload.school || "School of Technology",
+            designation: payload.designation || "Assistant Professor",
+            alternateEmail: payload.alternateEmail || "",
+            role: "faculty",
+            status: "pending",
+            submittedAt: new Date(),
+            reviewedAt: null,
+            reviewedBy: null,
+            rejectionReason: null,
+          });
+        }
+
+        // 5. Construct complete authoritative profile
         const userProfile: User = {
           uid: user.uid,
           email: user.email || trimmedEmail,
           displayName: trimmedName || user.displayName || trimmedEmail.split("@")[0],
           role: effRole,
           status: effStatus,
+          accountStatus: effStatus === "ACTIVE" ? "active" : "pending",
+          approvalStatus: effStatus === "ACTIVE" ? "approved" : "pending",
           department:
             payload.department ||
             (effRole === "faculty"
               ? "Department of Computer Science & Engineering"
               : "School of Technology"),
+          school: payload.school || "School of Technology",
+          designation: payload.designation || (effRole === "faculty" ? "Assistant Professor" : ""),
+          phoneNumber: payload.phoneNumber || "",
+          phone: payload.phoneNumber || "",
           rollNumber: payload.rollNumber ? payload.rollNumber.trim().toUpperCase() : undefined,
+          studentId: payload.rollNumber ? payload.rollNumber.trim().toUpperCase() : undefined,
           employeeId: payload.employeeId ? payload.employeeId.trim().toUpperCase() : undefined,
+          facultyId: payload.employeeId ? payload.employeeId.trim().toUpperCase() : undefined,
           onboardingCompleted: true,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
 
-        // 5. Write to Firestore users/{uid}
+        // 6. Write to Firestore users/{uid}
         const userDocRef = doc(db, "users", user.uid);
         await setDoc(userDocRef, userProfile, { merge: true });
 
-        // 6. Set state
+        // 7. Set state
         setProfile(userProfile);
         setClaims({ role: effRole, status: effStatus });
         persistUserRole(effRole, effStatus);
