@@ -15,7 +15,8 @@ service cloud.firestore {
     // Users Collection (Profile Management)
     match /users/{userId} {
       allow read: if true;
-      allow create, update: if true;
+      allow create: if true;
+      allow update: if isAuthenticated();
       allow delete: if isAuthenticated();
     }
 
@@ -40,6 +41,19 @@ service cloud.firestore {
       allow update, delete: if true;
     }
 
+    // Mail Queue Collection (Firebase Trigger Email extension)
+    match /mail/{mailId} {
+      allow read, write: if true;
+    }
+
+    // Notifications Collection (In-app notifications)
+    match /notifications/{notifId} {
+      allow read, write: if true;
+      match /items/{itemId} {
+        allow read, write: if true;
+      }
+    }
+
     // Audit Logs Collection (System Governance)
     match /auditLogs/{logId} {
       allow read: if true;
@@ -47,7 +61,7 @@ service cloud.firestore {
       allow update, delete: if true;
     }
 
-    // Event Reports & Other Collections
+    // General fallback for collections
     match /{document=**} {
       allow read, write: if true;
     }

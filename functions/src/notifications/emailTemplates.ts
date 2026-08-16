@@ -131,14 +131,15 @@ export function renderEmailTemplate(
 
     case "access-approved":
       return {
-        subject: "Welcome to Apollo Event Hub — Access Approved",
+        subject: "Apollo University Faculty Access Approved",
         html: wrapEmailHtml({
-          title: "Your Campus Access is Approved",
-          bodyHtml: `<p>Dear ${data.recipientName || "Member"},</p>
-          <p>Your access request to the Apollo University Event Hub has been verified and approved as <strong>${(data.role || "student").toUpperCase()}</strong>.</p>
-          <p>You can now browse university events, complete ticket registrations, and manage your campus passes.</p>`,
-          ctaText: "Open Campus Portal",
-          ctaLink: `${portalBaseUrl}`,
+          title: "Faculty Access Approved",
+          bodyHtml: `<p>Dear Faculty Member,</p>
+          <p>Your faculty access for the Apollo University Event Hub has been approved by the administrator.</p>
+          <p>Your account is now active and you can sign in to the Faculty Event Hub.</p>
+          <p style="margin-top: 16px;">Use your registered email address and password to sign in.</p>`,
+          ctaText: "Login here",
+          ctaLink: `https://theapolloeventhub.web.app/login`,
         }),
       };
 

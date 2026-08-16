@@ -294,7 +294,7 @@ export const LoginPage: React.FC = () => {
 
         toast.success("Faculty registration submitted successfully.", {
           description:
-            "Your account is waiting for administrator approval. You will receive an email once your account has been approved.",
+            "Your faculty registration has been submitted for admin approval. You will be able to sign in after your faculty access is approved.",
         });
 
         navigate("/faculty/application-submitted", {

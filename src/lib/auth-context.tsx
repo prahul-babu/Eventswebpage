@@ -436,7 +436,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
               clearPersistedRole();
               setIsLoading(false);
               setIsAuthenticating(false);
-              throw new Error("Your faculty account has been rejected. Please contact the administrator.");
+              throw new Error("Your faculty registration was not approved. Please contact the administrator.");
             }
 
             console.log("[AUTH] authorization result: PENDING_APPROVAL");
@@ -447,7 +447,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             clearPersistedRole();
             setIsLoading(false);
             setIsAuthenticating(false);
-            throw new Error("Your faculty account is awaiting administrator approval.");
+            throw new Error("Your faculty account is still awaiting admin approval.");
           }
         }
 
@@ -620,6 +620,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             applicationId: appId,
             uid: user.uid,
             fullName: trimmedName,
+            email: trimmedEmail,
             officialEmail: trimmedEmail,
             mobileNumber: payload.phoneNumber || "",
             employeeId: payload.employeeId ? payload.employeeId.trim().toUpperCase() : "",
@@ -628,12 +629,17 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             designation: payload.designation || "Assistant Professor",
             alternateEmail: payload.alternateEmail || "",
             role: "faculty",
-            status: "pending",
+            status: "PENDING",
             approvalStatus: "pending",
             isApproved: false,
+            approvalEmailSent: false,
+            approvalEmailSentAt: null,
+            createdAt: new Date(),
             submittedAt: new Date(),
             reviewedAt: null,
             reviewedBy: null,
+            approvedAt: null,
+            approvedBy: null,
             rejectionReason: null,
           });
         }
@@ -648,6 +654,8 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
           isApproved: effRole !== "faculty",
           accountStatus: effStatus === "ACTIVE" ? "active" : "pending",
           approvalStatus: effStatus === "ACTIVE" ? "approved" : "pending",
+          approvedAt: undefined,
+          approvedBy: undefined,
           department:
             payload.department ||
             (effRole === "faculty"

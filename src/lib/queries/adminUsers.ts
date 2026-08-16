@@ -797,7 +797,7 @@ export function useApproveFacultyApplication() {
   const queryClient = useQueryClient();
 
   return useMutation<
-    { success: boolean; applicationId: string; email: string },
+    { success: boolean; applicationId: string; email: string; emailSent: boolean },
     Error,
     { applicationId: string; uid?: string; email: string; fullName?: string }
   >({
@@ -807,11 +807,15 @@ export function useApproveFacultyApplication() {
       const appSnap = await getDoc(appRef);
       const appData = appSnap.exists() ? appSnap.data() : null;
 
-      // 1. Update application status
+      // 1. Update application status in facultyApplications/{applicationId}
       await setDoc(
         appRef,
         {
-          status: "approved",
+          status: "APPROVED",
+          approvalStatus: "approved",
+          isApproved: true,
+          approvedAt: new Date(),
+          approvedBy: adminUid,
           reviewedAt: new Date(),
           reviewedBy: adminUid,
         },
@@ -832,6 +836,9 @@ export function useApproveFacultyApplication() {
         await setDoc(
           userRef,
           {
+            uid: targetUid,
+            email: email || appData?.officialEmail || appData?.email,
+            displayName: fullName || appData?.fullName || "Faculty Member",
             role: "faculty",
             status: "ACTIVE",
             accountStatus: "active",
@@ -839,49 +846,81 @@ export function useApproveFacultyApplication() {
             isApproved: true,
             approvedAt: new Date(),
             approvedBy: adminUid,
+            department: appData?.department || "School of Technology",
+            school: appData?.school || "School of Technology",
+            designation: appData?.designation || "Assistant Professor",
+            employeeId: appData?.employeeId || "",
             updatedAt: new Date(),
           },
           { merge: true }
         );
       }
 
-      // 3. Queue Approval Email & Notification for faculty member
-      try {
-        const notificationDocRef = doc(collection(db, "notifications"));
-        await setDoc(notificationDocRef, {
-          recipientUid: targetUid || "",
-          recipientEmail: email,
-          type: "ACCESS_APPROVED",
-          title: "Apollo University Event Hub — Faculty Account Approved",
-          message: `Dear ${fullName || appData?.fullName || "Faculty Member"},\n\nYour faculty account for the Apollo University Event Hub has been approved by the administrator.\n\nYour account is now active and you can sign in to the Faculty Portal.`,
-          body: `Dear ${fullName || appData?.fullName || "Faculty Member"},\n\nYour faculty account for the Apollo University Event Hub has been approved by the administrator.\n\nYour account is now active and you can sign in to the Faculty Portal.\n\nRegards,\nThe Apollo University\nSchool of Technology`,
-          read: false,
-          priority: "HIGH",
-          createdAt: new Date(),
-        });
+      // 3. Queue Approval Email with Duplication Protection
+      let emailSent = false;
+      if (!appData?.approvalEmailSent) {
+        try {
+          const facultyName = fullName || appData?.fullName || "Faculty Member";
+          const facultyEmail = email || appData?.officialEmail || appData?.email;
 
-        // Also record in mail collection for backend trigger dispatch
-        const mailDocRef = doc(collection(db, "mail"));
-        await setDoc(mailDocRef, {
-          to: email,
-          message: {
-            subject: "Apollo University Event Hub — Faculty Account Approved",
-            text: `Dear ${fullName || appData?.fullName || "Faculty Member"},\n\nYour faculty account for the Apollo University Event Hub has been approved by the administrator.\n\nYour account is now active and you can sign in to the Faculty Portal.\n\nRegards,\nThe Apollo University\nSchool of Technology`,
-            html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-              <h2 style="color: #004D61;">The Apollo University Event Hub</h2>
-              <p>Dear <strong>${fullName || appData?.fullName || "Faculty Member"}</strong>,</p>
-              <p>Your faculty account for the <strong>Apollo University Event Hub</strong> has been approved by the administrator.</p>
-              <p>Your account is now active and you can sign in to the Faculty Portal to propose, manage, and view events.</p>
-              <div style="margin: 25px 0;">
-                <a href="https://theapolloeventhub.web.app/login" style="background-color: #007A99; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Log in to Faculty Portal</a>
-              </div>
-              <p style="color: #64748b; font-size: 12px; margin-top: 30px;">Regards,<br>The Apollo University<br>School of Technology</p>
-            </div>`,
-          },
-          createdAt: new Date(),
-        });
-      } catch (mailErr) {
-        console.warn("[useApproveFacultyApplication] Email queue notice:", mailErr);
+          // Universal mail queue for server-side delivery
+          const mailDocRef = doc(collection(db, "mail"));
+          await setDoc(mailDocRef, {
+            to: facultyEmail,
+            message: {
+              subject: "Apollo University Faculty Access Approved",
+              text: `Dear ${facultyName},\n\nYour faculty access for the Apollo University Event Hub has been approved by the administrator.\n\nYour account is now active and you can sign in to the Faculty Event Hub.\n\nLogin here:\nhttps://theapolloeventhub.web.app/login\n\nUse your registered email address and password to sign in.\n\nRegards,\nThe Apollo University\nFaculty Event Hub`,
+              html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+                <div style="background-color: #004D61; padding: 20px; text-align: center; border-radius: 8px; margin-bottom: 24px;">
+                  <h2 style="color: #ffffff; margin: 0; font-size: 20px;">The Apollo University Event Hub</h2>
+                </div>
+                <p style="font-size: 15px; color: #1e293b;">Dear <strong>${facultyName}</strong>,</p>
+                <p style="font-size: 14px; color: #334155; line-height: 1.6;">Your faculty access for the <strong>Apollo University Event Hub</strong> has been approved by the administrator.</p>
+                <p style="font-size: 14px; color: #334155; line-height: 1.6;">Your account is now active and you can sign in to the Faculty Event Hub.</p>
+                <div style="margin: 28px 0; text-align: center;">
+                  <a href="https://theapolloeventhub.web.app/login" style="background-color: #007A99; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Login here &rarr;</a>
+                </div>
+                <p style="font-size: 13px; color: #475569;">Use your registered email address (<strong>${facultyEmail}</strong>) and password to sign in.</p>
+                <p style="font-size: 13px; color: #64748b; margin-top: 32px; border-top: 1px solid #f1f5f9; padding-top: 16px;">
+                  Regards,<br>
+                  <strong>The Apollo University</strong><br>
+                  Faculty Event Hub
+                </p>
+              </div>`,
+            },
+            createdAt: new Date(),
+          });
+
+          // In-app notification queue
+          const notificationDocRef = doc(collection(db, "notifications"));
+          await setDoc(notificationDocRef, {
+            recipientUid: targetUid || "",
+            recipientEmail: facultyEmail,
+            type: "ACCESS_APPROVED",
+            title: "Apollo University Faculty Access Approved",
+            message: `Dear ${facultyName},\n\nYour faculty access for the Apollo University Event Hub has been approved by the administrator.\n\nYour account is now active and you can sign in to the Faculty Event Hub.\n\nLogin here: https://theapolloeventhub.web.app/login\n\nUse your registered email address and password to sign in.\n\nRegards,\nThe Apollo University\nFaculty Event Hub`,
+            read: false,
+            priority: "HIGH",
+            createdAt: new Date(),
+          });
+
+          // Mark application as email sent
+          await setDoc(
+            appRef,
+            {
+              approvalEmailSent: true,
+              approvalEmailSentAt: new Date(),
+            },
+            { merge: true }
+          );
+
+          emailSent = true;
+        } catch (mailErr) {
+          console.warn("[useApproveFacultyApplication] Email queue notice:", mailErr);
+          emailSent = false;
+        }
+      } else {
+        emailSent = true;
       }
 
       // 4. Log immutable audit trail
@@ -898,10 +937,11 @@ export function useApproveFacultyApplication() {
           fullName: fullName || appData?.fullName,
           employeeId: appData?.employeeId,
           department: appData?.department,
+          emailSent,
         },
       });
 
-      return { success: true, applicationId, email };
+      return { success: true, applicationId, email, emailSent };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "faculty-applications"] });
@@ -909,9 +949,15 @@ export function useApproveFacultyApplication() {
       queryClient.invalidateQueries({ queryKey: ["admin", "users-directory"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "dashboard-metrics"] });
 
-      toast.success("Faculty account approved successfully.", {
-        description: `Approval confirmed for ${data.email}. Faculty member can now sign in.`,
-      });
+      if (data.emailSent) {
+        toast.success("Faculty approved successfully. An approval email has been sent.", {
+          description: `Approval confirmed for ${data.email}. Faculty member can now sign in.`,
+        });
+      } else {
+        toast.info("Faculty approved successfully, but the approval email could not be sent.", {
+          description: `Account for ${data.email} is active, but email notification failed.`,
+        });
+      }
     },
     onError: (err) => {
       toast.error("Approval Failed", { description: err.message || "Unable to approve faculty account." });
