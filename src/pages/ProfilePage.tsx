@@ -36,19 +36,28 @@ import {
   CheckCircle2,
   Save,
   Loader2,
+  BookOpen,
 } from "lucide-react";
 import {
-  DEPARTMENTS,
-  BTECH_SPECIALIZATIONS,
-  BTECH_FACULTY_DEPARTMENTS,
-  ACADEMIC_YEARS,
-  ACADEMIC_SECTIONS,
-  FACULTY_DESIGNATIONS,
-} from "@/types";
+  BTECH_PROGRAMMES,
+  BTECH_ACADEMIC_YEARS,
+  normalizeBTechDepartment,
+} from "@/config/departments";
+import { FACULTY_DESIGNATIONS } from "@/types";
+import type { User } from "@/types";
 import { toast } from "sonner";
 
 export const ProfilePage: React.FC = () => {
-  const { profile, firebaseUser, role, status, updateUserProfile, isProfileComplete, missingProfileFields } = useAuth();
+  const {
+    profile,
+    firebaseUser,
+    role,
+    status,
+    updateUserProfile,
+    isProfileComplete,
+    missingProfileFields,
+  } = useAuth();
+
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -56,18 +65,12 @@ export const ProfilePage: React.FC = () => {
   const [displayName, setDisplayName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [personalEmail, setPersonalEmail] = useState("");
-  const [department, setDepartment] = useState("");
-  const [school, setSchool] = useState("");
-  const [programme, setProgramme] = useState("");
-  const [year, setYear] = useState("");
-  const [semester, setSemester] = useState("");
-  const [section, setSection] = useState("");
+  const [btechProgramme, setBtechProgramme] = useState("");
   const [rollNumber, setRollNumber] = useState("");
+  const [year, setYear] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [designation, setDesignation] = useState("");
   const [expertise, setExpertise] = useState("");
-  const [officeLocation, setOfficeLocation] = useState("");
-  const [address, setAddress] = useState("");
   const [emergencyContactName, setEmergencyContactName] = useState("");
   const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
   const [emergencyContactRelation, setEmergencyContactRelation] = useState("");
@@ -75,21 +78,20 @@ export const ProfilePage: React.FC = () => {
   // Sync profile values into form when opened
   const handleOpenEdit = () => {
     if (profile) {
-      setDisplayName(profile.displayName || "");
+      setDisplayName(profile.displayName || firebaseUser?.displayName || "");
       setPhoneNumber(profile.phoneNumber || profile.phone || "");
-      setPersonalEmail(profile.personalEmail || "");
-      setDepartment(profile.department || "School of Technology");
-      setSchool(profile.school || "School of Technology");
-      setProgramme(profile.programme || "B.Tech. Computer Science & Engineering");
-      setYear(profile.year || "3rd Year (B.Tech / UG)");
-      setSemester(profile.semester || "Semester 5");
-      setSection(profile.section || "Section A");
+      setPersonalEmail(profile.personalEmail || (profile as any).alternateEmail || "");
+
+      const currentProg = profile.btechProgramme || profile.department;
+      setBtechProgramme(
+        normalizeBTechDepartment(currentProg, "B.Tech. Computer Science and Engineering")
+      );
+
       setRollNumber(profile.rollNumber || profile.studentId || "");
+      setYear(profile.year || (profile as any).yearOfStudy || "3rd Year (B.Tech / UG)");
       setEmployeeId(profile.employeeId || profile.facultyId || "");
       setDesignation(profile.designation || "Assistant Professor");
       setExpertise(profile.expertise || "");
-      setOfficeLocation(profile.officeLocation || "");
-      setAddress(profile.address || "");
       setEmergencyContactName(profile.emergencyContactName || "");
       setEmergencyContactPhone(profile.emergencyContactPhone || "");
       setEmergencyContactRelation(profile.emergencyContactRelation || "");
@@ -99,62 +101,90 @@ export const ProfilePage: React.FC = () => {
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!displayName.trim()) {
-      toast.error("Name is required", { description: "Please enter your full name." });
+      toast.error("Full Name Required", { description: "Please enter your full name." });
       return;
     }
     if (!phoneNumber.trim()) {
-      toast.error("Contact number required", { description: "Please provide a valid phone number for SMS and event notifications." });
+      toast.error("Contact Number Required", {
+        description: "Please provide a valid contact number for campus notifications.",
+      });
       return;
     }
 
     try {
       setIsSaving(true);
-      const updatesPayload: Record<string, any> = {
-        displayName: displayName.trim(),
-        phoneNumber: phoneNumber.trim(),
-        phone: phoneNumber.trim(),
-        personalEmail: personalEmail.trim(),
-        department: department.trim(),
-        school: school.trim(),
-        address: address.trim(),
-      };
+      let updatesPayload: Partial<User> = {};
 
       if (role === "student") {
-        if (rollNumber.trim()) {
-          updatesPayload.rollNumber = rollNumber.trim().toUpperCase();
-          updatesPayload.studentId = rollNumber.trim().toUpperCase();
+        if (!rollNumber.trim()) {
+          toast.error("Roll Number Required", {
+            description: "Please enter your B.Tech student roll number.",
+          });
+          setIsSaving(false);
+          return;
         }
-        if (programme.trim()) updatesPayload.programme = programme.trim();
-        if (year.trim()) updatesPayload.year = year.trim();
-        if (semester.trim()) updatesPayload.semester = semester.trim();
-        if (section.trim()) updatesPayload.section = section.trim();
-        if (emergencyContactName.trim()) updatesPayload.emergencyContactName = emergencyContactName.trim();
-        if (emergencyContactPhone.trim()) updatesPayload.emergencyContactPhone = emergencyContactPhone.trim();
-        if (emergencyContactRelation.trim()) updatesPayload.emergencyContactRelation = emergencyContactRelation.trim();
+
+        const validProgramme = normalizeBTechDepartment(
+          btechProgramme,
+          "B.Tech. Computer Science and Engineering"
+        );
+
+        updatesPayload = {
+          displayName: displayName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          phone: phoneNumber.trim(),
+          personalEmail: personalEmail.trim() || undefined,
+          btechProgramme: validProgramme,
+          department: validProgramme,
+          rollNumber: rollNumber.trim().toUpperCase(),
+          studentId: rollNumber.trim().toUpperCase(),
+          year: year.trim() || "1st Year (B.Tech / UG)",
+          yearOfStudy: year.trim() || "1st Year (B.Tech / UG)",
+          emergencyContactName: emergencyContactName.trim() || undefined,
+          emergencyContactPhone: emergencyContactPhone.trim() || undefined,
+          emergencyContactRelation: emergencyContactRelation.trim() || undefined,
+        };
       } else if (role === "faculty") {
-        if (employeeId.trim()) {
-          updatesPayload.employeeId = employeeId.trim().toUpperCase();
-          updatesPayload.facultyId = employeeId.trim().toUpperCase();
+        if (!employeeId.trim()) {
+          toast.error("Employee ID Required", {
+            description: "Please enter your official faculty / employee ID.",
+          });
+          setIsSaving(false);
+          return;
         }
-        if (designation.trim()) updatesPayload.designation = designation.trim();
-        if (expertise.trim()) updatesPayload.expertise = expertise.trim();
-        if (officeLocation.trim()) updatesPayload.officeLocation = officeLocation.trim();
-      } else if (role === "admin") {
-        if (employeeId.trim()) {
-          updatesPayload.employeeId = employeeId.trim().toUpperCase();
-          updatesPayload.adminId = employeeId.trim().toUpperCase();
-        }
-        if (designation.trim()) updatesPayload.designation = designation.trim();
+
+        const validProgramme = normalizeBTechDepartment(
+          btechProgramme,
+          "B.Tech. Computer Science and Engineering"
+        );
+
+        updatesPayload = {
+          displayName: displayName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          phone: phoneNumber.trim(),
+          personalEmail: personalEmail.trim() || undefined,
+          btechProgramme: validProgramme,
+          department: validProgramme,
+          employeeId: employeeId.trim().toUpperCase(),
+          facultyId: employeeId.trim().toUpperCase(),
+          designation: designation.trim() || "Assistant Professor",
+          expertise: expertise.trim() || undefined,
+        };
+      } else {
+        // Admin Profile - Strict personal/account information only
+        updatesPayload = {
+          displayName: displayName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          phone: phoneNumber.trim(),
+        };
       }
 
       await updateUserProfile(updatesPayload);
-      toast.success("Profile Updated Successfully", {
-        description: "Your institutional details have been saved to the campus registry.",
-      });
       setIsEditDialogOpen(false);
-    } catch (err: any) {
-      toast.error("Failed to update profile", { description: err.message });
+    } catch {
+      // Toast error handled by updateUserProfile
     } finally {
       setIsSaving(false);
     }
@@ -162,26 +192,34 @@ export const ProfilePage: React.FC = () => {
 
   const userDisplayName = profile?.displayName || firebaseUser?.displayName || "Campus Member";
   const userEmail = profile?.email || firebaseUser?.email || "";
-  const userDepartment = profile?.department || "School of Technology";
+  const userBTechProgramme = normalizeBTechDepartment(
+    profile?.btechProgramme || profile?.department,
+    "B.Tech. Computer Science and Engineering"
+  );
   const userRollNumber = profile?.rollNumber || profile?.studentId;
   const userEmployeeId = profile?.employeeId || profile?.facultyId;
   const userPhone = profile?.phoneNumber || profile?.phone || "Not provided";
-  const userSso = profile?.ssoProvider || (firebaseUser?.providerData?.[0]?.providerId === "microsoft.com" ? "Microsoft Entra ID" : "Apollo SSO Provider");
+  const userPersonalEmail = profile?.personalEmail || (profile as any)?.alternateEmail || "Not provided";
+  const userSso =
+    profile?.ssoProvider ||
+    (firebaseUser?.providerData?.[0]?.providerId === "microsoft.com"
+      ? "Microsoft Entra ID"
+      : "Apollo SSO Provider");
 
   return (
     <div>
       <PageHeader
         title="My Campus Profile"
-        description="View and manage your Apollo University institutional profile details and permissions."
+        description="View and manage your Apollo University B.Tech Event Hub profile details and credentials."
         badge={{ text: role ? role.toUpperCase() : "STUDENT", variant: "indigo" }}
         actions={
           <Button
             onClick={handleOpenEdit}
             size="sm"
-            className="rounded-xl text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold gap-1.5 h-9 shadow-xs"
+            className="rounded-xl text-xs bg-[#004D61] hover:bg-[#003847] text-white font-bold gap-1.5 h-9 shadow-2xs cursor-pointer"
           >
             <Edit2 className="w-3.5 h-3.5" />
-            <span>Edit Profile Details</span>
+            <span>{role === "admin" ? "Edit Profile" : "Edit Institutional Profile"}</span>
           </Button>
         }
       />
@@ -189,7 +227,7 @@ export const ProfilePage: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pb-16">
         {/* Profile Completeness Alert if Incomplete */}
         {!isProfileComplete && (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
             <div className="flex items-center gap-3">
               <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
               <div>
@@ -213,9 +251,9 @@ export const ProfilePage: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Identity Summary Card */}
-          <Card className="border-slate-200 shadow-sm bg-white">
+          <Card className="border-slate-200 shadow-2xs bg-white rounded-3xl overflow-hidden">
             <CardHeader className="text-center pb-4">
-              <div className="w-20 h-20 rounded-2xl bg-indigo-900 text-white flex items-center justify-center mx-auto mb-2 text-2xl font-bold shadow-md">
+              <div className="w-20 h-20 rounded-2xl bg-[#004D61] text-white flex items-center justify-center mx-auto mb-2 text-2xl font-bold shadow-md">
                 {userDisplayName
                   .split(" ")
                   .map((n: string) => n[0])
@@ -223,7 +261,7 @@ export const ProfilePage: React.FC = () => {
                   .substring(0, 2)
                   .toUpperCase()}
               </div>
-              <CardTitle className="text-lg">{userDisplayName}</CardTitle>
+              <CardTitle className="text-lg font-bold text-slate-900">{userDisplayName}</CardTitle>
               <CardDescription className="text-xs font-mono">{userEmail}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 pt-2 text-xs border-t">
@@ -233,14 +271,18 @@ export const ProfilePage: React.FC = () => {
               </div>
               <div className="flex justify-between items-center py-1">
                 <span className="text-slate-500">Institutional Role</span>
-                <Badge variant="indigo" className="capitalize">{role || "student"}</Badge>
+                <Badge variant="indigo" className="capitalize font-bold">{role || "student"}</Badge>
+              </div>
+              <div className="flex justify-between items-center py-1">
+                <span className="text-slate-500">SSO Provider</span>
+                <span className="font-semibold text-slate-800 text-[11px]">{userSso}</span>
               </div>
               <div className="flex justify-between items-center py-1">
                 <span className="text-slate-500">Profile Status</span>
                 {isProfileComplete ? (
-                  <Badge variant="emerald" className="gap-1 text-[10px]">
+                  <Badge variant="emerald" className="gap-1 text-[10px] font-bold">
                     <CheckCircle2 className="w-3 h-3" />
-                    <span>Verified & Complete</span>
+                    <span>Verified &amp; Complete</span>
                   </Badge>
                 ) : (
                   <Badge variant="amber" className="text-[10px]">
@@ -256,16 +298,16 @@ export const ProfilePage: React.FC = () => {
                   className="w-full rounded-xl text-xs gap-1.5 h-8 font-semibold"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
-                  <span>Update Information</span>
+                  <span>Update Profile</span>
                 </Button>
               </div>
             </CardContent>
           </Card>
 
-          {/* Academic & Verification Details */}
-          <Card className="border-slate-200 shadow-sm md:col-span-2 bg-white space-y-4">
+          {/* Role-Specific Credentials & Details Card */}
+          <Card className="border-slate-200 shadow-2xs md:col-span-2 bg-white space-y-4 rounded-3xl">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
+              <CardTitle className="text-base flex items-center gap-2 text-slate-900">
                 <ShieldCheck className="w-4 h-4 text-emerald-600" />
                 <span>
                   {role === "faculty"
@@ -276,94 +318,166 @@ export const ProfilePage: React.FC = () => {
                 </span>
               </CardTitle>
               <CardDescription className="text-xs">
-                Official institutional records synchronized with Microsoft Entra ID and the campus registry.
+                {role === "admin"
+                  ? "Official administrative console record for university governance and event oversight."
+                  : "Official records synchronized with Microsoft Entra ID and the B.Tech campus registry."}
               </CardDescription>
             </CardHeader>
 
             <CardContent className="space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <div className="text-slate-500 flex items-center gap-1 mb-1">
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>Department / School</span>
-                  </div>
-                  <div className="font-semibold text-slate-900">{userDepartment}</div>
-                </div>
-
+                {/* 1. STUDENT CREDENTIALS */}
                 {role === "student" && (
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <div className="text-slate-500 flex items-center gap-1 mb-1">
-                      <Hash className="w-3.5 h-3.5" />
-                      <span>Student ID / Roll Number</span>
+                  <>
+                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
+                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
+                        <BookOpen className="w-3.5 h-3.5 text-[#007A99]" />
+                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                          B.Tech Programme / Stream
+                        </span>
+                      </div>
+                      <div className="font-bold text-slate-900 text-sm">{userBTechProgramme}</div>
                     </div>
-                    <div className="font-mono font-semibold text-slate-900">
-                      {userRollNumber || <span className="text-amber-600 font-normal italic">Not provided (Click Edit)</span>}
+
+                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
+                        <Hash className="w-3.5 h-3.5 text-[#007A99]" />
+                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                          Student Roll Number
+                        </span>
+                      </div>
+                      <div className="font-mono font-bold text-slate-900">
+                        {userRollNumber || <span className="text-amber-600 font-normal italic">Not provided</span>}
+                      </div>
                     </div>
-                  </div>
+
+                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
+                        <GraduationCap className="w-3.5 h-3.5 text-[#007A99]" />
+                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                          Year of Study
+                        </span>
+                      </div>
+                      <div className="font-bold text-slate-900">
+                        {profile?.year || (profile as any)?.yearOfStudy || "3rd Year (B.Tech / UG)"}
+                      </div>
+                    </div>
+                  </>
                 )}
 
+                {/* 2. FACULTY CREDENTIALS */}
                 {role === "faculty" && (
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <div className="text-slate-500 flex items-center gap-1 mb-1">
-                      <Hash className="w-3.5 h-3.5" />
-                      <span>Faculty / Employee ID</span>
+                  <>
+                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
+                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
+                        <Building2 className="w-3.5 h-3.5 text-[#007A99]" />
+                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                          B.Tech Department / Programme
+                        </span>
+                      </div>
+                      <div className="font-bold text-slate-900 text-sm">{userBTechProgramme}</div>
                     </div>
-                    <div className="font-mono font-semibold text-slate-900">
-                      {userEmployeeId || <span className="text-amber-600 font-normal italic">Not provided (Click Edit)</span>}
+
+                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
+                        <Hash className="w-3.5 h-3.5 text-[#007A99]" />
+                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                          Faculty / Employee ID
+                        </span>
+                      </div>
+                      <div className="font-mono font-bold text-slate-900">
+                        {userEmployeeId || <span className="text-amber-600 font-normal italic">Not provided</span>}
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
+                        <Briefcase className="w-3.5 h-3.5 text-[#007A99]" />
+                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                          Academic Designation
+                        </span>
+                      </div>
+                      <div className="font-bold text-slate-900">
+                        {profile?.designation || "Assistant Professor"}
+                      </div>
+                    </div>
+
+                    {profile?.expertise && (
+                      <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
+                        <div className="text-slate-500 flex items-center gap-1.5 mb-1">
+                          <BookOpen className="w-3.5 h-3.5 text-[#007A99]" />
+                          <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                            Area of Expertise / Research
+                          </span>
+                        </div>
+                        <div className="text-slate-800 font-medium">{profile.expertise}</div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* 3. ADMIN CREDENTIALS */}
+                {role === "admin" && (
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
+                    <div className="text-slate-500 flex items-center gap-1.5 mb-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                        Administrative Authority
+                      </span>
+                    </div>
+                    <div className="font-bold text-slate-900 text-sm">
+                      {profile?.adminRole || "System Administrator • Full Platform Oversight"}
                     </div>
                   </div>
                 )}
 
-                {role === "faculty" && (
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <div className="text-slate-500 flex items-center gap-1 mb-1">
-                      <Briefcase className="w-3.5 h-3.5" />
-                      <span>Academic Designation</span>
-                    </div>
-                    <div className="font-semibold text-slate-900">
-                      {profile?.designation || "Assistant Professor"}
-                    </div>
-                  </div>
-                )}
-
-                {role === "student" && (
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <div className="text-slate-500 flex items-center gap-1 mb-1">
-                      <GraduationCap className="w-3.5 h-3.5" />
-                      <span>Academic Standing</span>
-                    </div>
-                    <div className="font-semibold text-slate-900">
-                      {profile?.year || "3rd Year (B.Tech / UG)"} &bull; {profile?.section || "Section A"}
-                    </div>
-                  </div>
-                )}
-
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <div className="text-slate-500 flex items-center gap-1 mb-1">
-                    <Phone className="w-3.5 h-3.5" />
-                    <span>Mobile Contact</span>
+                {/* Common Contact Fields */}
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="text-slate-500 flex items-center gap-1.5 mb-1">
+                    <Phone className="w-3.5 h-3.5 text-[#007A99]" />
+                    <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                      Mobile Contact
+                    </span>
                   </div>
                   <div className="font-semibold text-slate-900">{userPhone}</div>
                 </div>
 
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <div className="text-slate-500 flex items-center gap-1 mb-1">
-                    <Mail className="w-3.5 h-3.5" />
-                    <span>SSO Provider</span>
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="text-slate-500 flex items-center gap-1.5 mb-1">
+                    <Mail className="w-3.5 h-3.5 text-[#007A99]" />
+                    <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                      Official University Email
+                    </span>
                   </div>
-                  <div className="font-semibold text-slate-900">{userSso}</div>
+                  <div className="font-semibold text-slate-900 truncate font-mono text-[11px]">{userEmail}</div>
                 </div>
 
+                {role !== "admin" && (
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
+                    <div className="text-slate-500 flex items-center gap-1.5 mb-1">
+                      <Mail className="w-3.5 h-3.5 text-[#007A99]" />
+                      <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                        Personal Alternate Email
+                      </span>
+                    </div>
+                    <div className="font-semibold text-slate-900">{userPersonalEmail}</div>
+                  </div>
+                )}
+
                 {role === "student" && profile?.emergencyContactName && (
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 sm:col-span-2">
-                    <div className="text-slate-500 flex items-center gap-1 mb-1">
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
+                    <div className="text-slate-500 flex items-center gap-1.5 mb-1">
                       <HeartHandshake className="w-3.5 h-3.5 text-rose-500" />
-                      <span>Emergency Contact Dossier</span>
+                      <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                        Emergency Contact Dossier
+                      </span>
                     </div>
                     <div className="font-medium text-slate-800">
                       {profile.emergencyContactName}{" "}
                       {profile.emergencyContactRelation ? `(${profile.emergencyContactRelation})` : ""} &bull;{" "}
-                      <span className="font-mono">{profile.emergencyContactPhone || "No phone on file"}</span>
+                      <span className="font-mono font-bold text-slate-900">
+                        {profile.emergencyContactPhone || "No phone on file"}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -373,107 +487,109 @@ export const ProfilePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Edit Profile Dialog Modal */}
+      {/* Role-Aware Edit Profile Dialog Modal */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 bg-white border border-slate-200 shadow-2xl">
-          <form onSubmit={handleSaveProfile} className="space-y-6">
+          <form onSubmit={handleSaveProfile} className="space-y-5">
             <DialogHeader className="border-b pb-3 text-left">
               <DialogTitle className="text-lg font-black text-slate-900 flex items-center gap-2">
-                <Edit2 className="w-4 h-4 text-indigo-600" />
-                <span>Edit Institutional Profile</span>
+                <Edit2 className="w-4 h-4 text-[#007A99]" />
+                <span>{role === "admin" ? "Edit Profile" : "Edit Institutional Profile"}</span>
               </DialogTitle>
-              <DialogDescription className="text-xs text-slate-400">
-                Update your verified contact and academic records for Apollo University event records.
+              <DialogDescription className="text-xs text-slate-500">
+                {role === "student"
+                  ? "Update your verified personal, academic, and emergency contact records."
+                  : role === "faculty"
+                  ? "Update your verified faculty credentials and department contact information."
+                  : "Update your administrator contact details and profile name."}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 text-xs">
-              {/* Basic Details */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <UserIcon className="w-3 h-3 text-slate-400" /> Full Name *
-                  </Label>
-                  <Input
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="e.g. John Doe"
-                    required
-                    className="h-9 text-xs"
-                  />
-                </div>
+              {/* SECTION 1: PERSONAL INFORMATION (ALL ROLES) */}
+              <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <UserIcon className="w-3.5 h-3.5 text-[#007A99]" /> Personal Information
+                </span>
 
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <Phone className="w-3 h-3 text-slate-400" /> Mobile Contact Number *
-                  </Label>
-                  <Input
-                    type="tel"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    placeholder="e.g. 9876543210"
-                    required
-                    className="h-9 text-xs"
-                  />
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-slate-700">Full Name *</Label>
+                    <Input
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="e.g. Rahul Sharma"
+                      required
+                      className="h-9 text-xs rounded-xl"
+                    />
+                  </div>
 
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <Mail className="w-3 h-3 text-slate-400" /> Personal Alternate Email
-                  </Label>
-                  <Input
-                    type="email"
-                    value={personalEmail}
-                    onChange={(e) => setPersonalEmail(e.target.value)}
-                    placeholder="e.g. student@gmail.com"
-                    className="h-9 text-xs"
-                  />
-                </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-slate-700">Mobile Contact Number *</Label>
+                    <Input
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      placeholder="e.g. 9876543210"
+                      required
+                      className="h-9 text-xs rounded-xl"
+                    />
+                  </div>
 
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <Building2 className="w-3 h-3 text-slate-400" /> {role === "student" ? "B.Tech Branch / Specialization" : "B.Tech Department"} *
-                  </Label>
-                  <Select value={department} onValueChange={setDepartment}>
-                    <SelectTrigger className="h-9 text-xs">
-                      <SelectValue placeholder="Select Department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(role === "student" ? BTECH_SPECIALIZATIONS : role === "faculty" ? BTECH_FACULTY_DEPARTMENTS : DEPARTMENTS).map((dept) => (
-                        <SelectItem key={dept} value={dept} className="text-xs">
-                          {dept}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {role !== "admin" && (
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-bold text-slate-700">Personal Alternate Email</Label>
+                      <Input
+                        type="email"
+                        value={personalEmail}
+                        onChange={(e) => setPersonalEmail(e.target.value)}
+                        placeholder="e.g. personal@gmail.com"
+                        className="h-9 text-xs rounded-xl"
+                      />
+                    </div>
+                  )}
+
+                  {role === "admin" && (
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-bold text-slate-700">Official Email</Label>
+                      <Input
+                        type="email"
+                        value={userEmail}
+                        disabled
+                        className="h-9 text-xs rounded-xl bg-slate-100 font-mono text-slate-500 cursor-not-allowed"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Role Specific Fields */}
+              {/* SECTION 2: STUDENT ACADEMIC INFORMATION */}
               {role === "student" && (
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                    <GraduationCap className="w-3.5 h-3.5 text-indigo-600" /> Academic Information
+                <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-3">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                    <GraduationCap className="w-3.5 h-3.5 text-[#007A99]" /> Academic Information
                   </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div className="space-y-1.5">
                       <Label className="text-xs font-bold text-slate-700">Student Roll Number *</Label>
                       <Input
                         value={rollNumber}
                         onChange={(e) => setRollNumber(e.target.value)}
                         placeholder="e.g. 21BCE10234"
-                        className="h-9 text-xs font-mono"
+                        required
+                        className="h-9 text-xs font-mono rounded-xl"
                       />
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-700">Year of Study</Label>
+                      <Label className="text-xs font-bold text-slate-700">Year of Study *</Label>
                       <Select value={year} onValueChange={setYear}>
-                        <SelectTrigger className="h-9 text-xs bg-white">
-                          <SelectValue placeholder="Academic Year" />
+                        <SelectTrigger className="h-9 text-xs bg-white rounded-xl">
+                          <SelectValue placeholder="Select Year of Study" />
                         </SelectTrigger>
                         <SelectContent>
-                          {ACADEMIC_YEARS.map((yr) => (
+                          {BTECH_ACADEMIC_YEARS.map((yr) => (
                             <SelectItem key={yr} value={yr} className="text-xs">
                               {yr}
                             </SelectItem>
@@ -482,16 +598,16 @@ export const ProfilePage: React.FC = () => {
                       </Select>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-700">Section</Label>
-                      <Select value={section} onValueChange={setSection}>
-                        <SelectTrigger className="h-9 text-xs bg-white">
-                          <SelectValue placeholder="Academic Section" />
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-bold text-slate-700">B.Tech Programme / Stream *</Label>
+                      <Select value={btechProgramme} onValueChange={setBtechProgramme}>
+                        <SelectTrigger className="h-9 text-xs bg-white rounded-xl">
+                          <SelectValue placeholder="Select B.Tech Programme" />
                         </SelectTrigger>
                         <SelectContent>
-                          {ACADEMIC_SECTIONS.map((sec) => (
-                            <SelectItem key={sec} value={sec} className="text-xs">
-                              {sec}
+                          {BTECH_PROGRAMMES.map((prog) => (
+                            <SelectItem key={prog} value={prog} className="text-xs">
+                              {prog}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -501,26 +617,29 @@ export const ProfilePage: React.FC = () => {
                 </div>
               )}
 
+              {/* SECTION 2: FACULTY INSTITUTIONAL INFORMATION */}
               {role === "faculty" && (
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                    <Briefcase className="w-3.5 h-3.5 text-indigo-600" /> Faculty Credentials
+                <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-3">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                    <Briefcase className="w-3.5 h-3.5 text-[#007A99]" /> Institutional Information
                   </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-700">Faculty / Employee ID</Label>
+                      <Label className="text-xs font-bold text-slate-700">Faculty / Employee ID *</Label>
                       <Input
                         value={employeeId}
                         onChange={(e) => setEmployeeId(e.target.value)}
                         placeholder="e.g. EMP-CSE-409"
-                        className="h-9 text-xs font-mono"
+                        required
+                        className="h-9 text-xs font-mono rounded-xl"
                       />
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-700">Designation</Label>
+                      <Label className="text-xs font-bold text-slate-700">Designation *</Label>
                       <Select value={designation} onValueChange={setDesignation}>
-                        <SelectTrigger className="h-9 text-xs bg-white">
+                        <SelectTrigger className="h-9 text-xs bg-white rounded-xl">
                           <SelectValue placeholder="Select Designation" />
                         </SelectTrigger>
                         <SelectContent>
@@ -534,57 +653,78 @@ export const ProfilePage: React.FC = () => {
                     </div>
 
                     <div className="space-y-1.5 sm:col-span-2">
-                      <Label className="text-xs font-bold text-slate-700">Area of Expertise / Research</Label>
+                      <Label className="text-xs font-bold text-slate-700">B.Tech Department / Programme *</Label>
+                      <Select value={btechProgramme} onValueChange={setBtechProgramme}>
+                        <SelectTrigger className="h-9 text-xs bg-white rounded-xl">
+                          <SelectValue placeholder="Select B.Tech Programme" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BTECH_PROGRAMMES.map((prog) => (
+                            <SelectItem key={prog} value={prog} className="text-xs">
+                              {prog}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-bold text-slate-700">Area of Expertise / Research (Optional)</Label>
                       <Input
                         value={expertise}
                         onChange={(e) => setExpertise(e.target.value)}
-                        placeholder="e.g. Distributed Systems, Neural Networks"
-                        className="h-9 text-xs"
+                        placeholder="e.g. Distributed Systems, Machine Learning"
+                        className="h-9 text-xs rounded-xl"
                       />
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Emergency Contact */}
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                  <HeartHandshake className="w-3.5 h-3.5 text-rose-500" /> Emergency Contact (Optional)
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-bold text-slate-700">Contact Name</Label>
-                    <Input
-                      value={emergencyContactName}
-                      onChange={(e) => setEmergencyContactName(e.target.value)}
-                      placeholder="e.g. Parent / Guardian"
-                      className="h-9 text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-bold text-slate-700">Contact Phone</Label>
-                    <Input
-                      type="tel"
-                      value={emergencyContactPhone}
-                      onChange={(e) => setEmergencyContactPhone(e.target.value)}
-                      placeholder="e.g. 9123456780"
-                      className="h-9 text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-bold text-slate-700">Relationship</Label>
-                    <Input
-                      value={emergencyContactRelation}
-                      onChange={(e) => setEmergencyContactRelation(e.target.value)}
-                      placeholder="e.g. Mother / Father"
-                      className="h-9 text-xs"
-                    />
+              {/* SECTION 3: STUDENT EMERGENCY CONTACT (OPTIONAL) */}
+              {role === "student" && (
+                <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-3">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                    <HeartHandshake className="w-3.5 h-3.5 text-rose-500" /> Emergency Contact (Optional)
+                  </span>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-slate-700">Contact Name</Label>
+                      <Input
+                        value={emergencyContactName}
+                        onChange={(e) => setEmergencyContactName(e.target.value)}
+                        placeholder="e.g. Parent / Guardian"
+                        className="h-9 text-xs rounded-xl"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-slate-700">Contact Phone</Label>
+                      <Input
+                        type="tel"
+                        value={emergencyContactPhone}
+                        onChange={(e) => setEmergencyContactPhone(e.target.value)}
+                        placeholder="e.g. 9123456780"
+                        className="h-9 text-xs rounded-xl"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-slate-700">Relationship</Label>
+                      <Input
+                        value={emergencyContactRelation}
+                        onChange={(e) => setEmergencyContactRelation(e.target.value)}
+                        placeholder="e.g. Mother / Father"
+                        className="h-9 text-xs rounded-xl"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
-            <DialogFooter className="gap-2 pt-2 border-t">
+            <DialogFooter className="gap-2 pt-2 border-t flex items-center justify-end">
               <Button
                 type="button"
                 variant="outline"
@@ -596,7 +736,7 @@ export const ProfilePage: React.FC = () => {
               <Button
                 type="submit"
                 disabled={isSaving}
-                className="rounded-xl text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold gap-1.5 h-9"
+                className="rounded-xl text-xs bg-[#004D61] hover:bg-[#003847] text-white font-bold gap-1.5 h-9 shadow-2xs cursor-pointer"
               >
                 {isSaving ? (
                   <>
@@ -606,7 +746,7 @@ export const ProfilePage: React.FC = () => {
                 ) : (
                   <>
                     <Save className="w-3.5 h-3.5" />
-                    <span>Save Institutional Profile</span>
+                    <span>{role === "admin" ? "Save Profile" : "Save Institutional Profile"}</span>
                   </>
                 )}
               </Button>
@@ -617,4 +757,5 @@ export const ProfilePage: React.FC = () => {
     </div>
   );
 };
+
 export default ProfilePage;

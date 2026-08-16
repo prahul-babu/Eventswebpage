@@ -221,36 +221,37 @@ export const AdminUserProfilePage: React.FC = () => {
             <h3 className="text-sm font-bold text-slate-900 border-b pb-2">Institutional &amp; Departmental Data</h3>
 
             <div className="space-y-4 text-xs">
-              <div className="space-y-1.5">
-                <Label className="font-bold text-slate-700">B.Tech Department / Specialization</Label>
-                <Select value={department} onValueChange={setDepartment}>
-                  <SelectTrigger className="h-10 text-xs">
-                    <SelectValue placeholder="Select B.Tech Department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DEPARTMENTS.map((dept) => (
-                      <SelectItem key={dept} value={dept} className="text-xs">
-                        {dept}
-                      </SelectItem>
-                    ))}
-                    {department && !DEPARTMENTS.includes(department as any) && (
-                      <SelectItem value={department} className="text-xs font-bold text-amber-600">
-                        {department} (Existing)
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
+              {data.user.role !== "admin" && (
+                <div className="space-y-1.5">
+                  <Label className="font-bold text-slate-700">
+                    {data.user.role === "student" ? "B.Tech Programme / Stream" : "B.Tech Department / Programme"}
+                  </Label>
+                  <Select value={department} onValueChange={setDepartment}>
+                    <SelectTrigger className="h-10 text-xs">
+                      <SelectValue placeholder="Select B.Tech Programme" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DEPARTMENTS.map((dept) => (
+                        <SelectItem key={dept} value={dept} className="text-xs">
+                          {dept}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
-              <div className="space-y-1.5">
-                <Label className="font-bold text-slate-700">Designation / Title</Label>
-                <Input
-                  value={designation}
-                  onChange={(e) => setDesignation(e.target.value)}
-                  placeholder="e.g. Associate Professor / Student Scholar"
-                  className="h-10 text-xs"
-                />
-              </div>
+              {data.user.role === "faculty" && (
+                <div className="space-y-1.5">
+                  <Label className="font-bold text-slate-700">Academic Designation</Label>
+                  <Input
+                    value={designation}
+                    onChange={(e) => setDesignation(e.target.value)}
+                    placeholder="e.g. Assistant Professor, Associate Professor"
+                    className="h-10 text-xs"
+                  />
+                </div>
+              )}
 
               <div className="space-y-1.5">
                 <Label className="font-bold text-slate-700">Mobile Contact Number</Label>

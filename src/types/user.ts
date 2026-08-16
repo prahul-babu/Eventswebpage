@@ -47,36 +47,21 @@ export interface AdminNotification {
   createdAt: any;
 }
 
-// Apollo University B.Tech Academic Departments & Specializations
-export const BTECH_FACULTY_DEPARTMENTS = [
-  "Department of Computer Science & Engineering",
-  "Department of AI & Data Science",
-  "Department of Cyber Security",
-  "Department of Information Technology",
-  "Department of Electronics & Communication Engineering",
-  "Department of Electrical & Electronics Engineering",
-  "Department of Mechanical Engineering",
-  "Department of Civil Engineering",
-] as const;
-
-export const BTECH_SPECIALIZATIONS = [
+// Apollo University B.Tech Academic Programmes (Strict Single Source of Truth)
+export const BTECH_PROGRAMMES = [
   "B.Tech. Computer Science and Engineering",
   "B.Tech. CSE - Artificial Intelligence and Data Science",
   "B.Tech. CSE - Artificial Intelligence and Machine Learning",
   "B.Tech. CSE - Cyber Security",
   "B.Tech. CSE - Cloud Computing",
   "B.Tech. CSE - AI & Health Care Technology",
-  "B.Tech. Information Technology",
-  "B.Tech. Electronics & Communication Engineering",
-  "B.Tech. Electrical & Electronics Engineering",
-  "B.Tech. Mechanical Engineering",
-  "B.Tech. Civil Engineering",
 ] as const;
 
-export const DEPARTMENTS = [
-  ...BTECH_SPECIALIZATIONS,
-  ...BTECH_FACULTY_DEPARTMENTS,
-] as const;
+export type BTechProgramme = (typeof BTECH_PROGRAMMES)[number];
+
+export const BTECH_FACULTY_DEPARTMENTS = BTECH_PROGRAMMES;
+export const BTECH_SPECIALIZATIONS = BTECH_PROGRAMMES;
+export const DEPARTMENTS = BTECH_PROGRAMMES;
 
 export type Department = (typeof DEPARTMENTS)[number];
 
@@ -86,9 +71,6 @@ export const ACADEMIC_YEARS = [
   "2nd Year (B.Tech / UG)",
   "3rd Year (B.Tech / UG)",
   "4th Year (B.Tech / UG)",
-  "1st Year (M.Tech / PG)",
-  "2nd Year (M.Tech / PG)",
-  "PhD Research Scholar",
 ] as const;
 export type AcademicYear = (typeof ACADEMIC_YEARS)[number];
 
@@ -134,6 +116,7 @@ export interface User {
   role: UserRole;
   status: UserStatus;
   department: Department | string;
+  btechProgramme?: BTechProgramme | string;
   school?: string;
   
   // Student Specific Fields
@@ -162,6 +145,7 @@ export interface User {
   // Admin Specific Fields
   adminUnit?: string;
   adminId?: string;
+  adminRole?: string;
 
   phoneNumber?: string;
   phone?: string;

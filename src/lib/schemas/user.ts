@@ -13,7 +13,7 @@ export const departmentSchema = z
   .refine(
     (dept) => !isForbiddenNonBTechDepartment(dept),
     {
-      message: "Only B.Tech / School of Technology departments and specializations are permitted.",
+      message: "Only approved B.Tech programmes and streams are permitted.",
     }
   );
 

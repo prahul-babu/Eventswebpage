@@ -41,6 +41,7 @@ import type {
   RequestAccessPayload,
   SetUserRolePayload,
 } from "@/types";
+import { normalizeBTechDepartment } from "@/config/departments";
 import { toast } from "sonner";
 
 export interface AuthClaims {
@@ -846,8 +847,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
               isApproved,
               approvalStatus: isApproved ? "approved" : profileStatus === "REJECTED" ? "rejected" : "pending",
               accountStatus: profileStatus === "ACTIVE" ? "active" : "pending",
-              department: userData.department || (profileRole === "faculty" ? "Department of Computer Science & Engineering" : "B.Tech. Computer Science and Engineering"),
-              school: userData.school || "School of Technology",
+              department: normalizeBTechDepartment(
+                userData.btechProgramme || userData.department,
+                "B.Tech. Computer Science and Engineering"
+              ),
+              btechProgramme: normalizeBTechDepartment(
+                userData.btechProgramme || userData.department,
+                "B.Tech. Computer Science and Engineering"
+              ),
+              school: "School of Technology",
               rollNumber: userData.rollNumber || userData.studentId,
               studentId: userData.studentId || userData.rollNumber,
               employeeId: userData.employeeId || userData.facultyId,
@@ -1040,10 +1048,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     if (effectiveRole === "student") {
       if (!profile.rollNumber && !(profile as any).studentId) missing.push("Student Roll Number");
       if (!profile.phoneNumber && !profile.phone) missing.push("Mobile Contact Number");
-      if (!profile.department || profile.department.trim().length === 0) missing.push("Department");
+      if (!profile.btechProgramme && !profile.department) missing.push("B.Tech Programme");
     } else if (effectiveRole === "faculty") {
       if (!profile.employeeId && !profile.facultyId) missing.push("Faculty / Employee ID");
-      if (!profile.department) missing.push("Department");
+      if (!profile.btechProgramme && !profile.department) missing.push("B.Tech Department / Programme");
     }
     return missing;
   })();
@@ -1061,8 +1069,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         department:
           newRole === "admin"
             ? "Institutional Administration"
-            : newRole === "faculty"
-            ? "Department of Computer Science & Engineering"
+            : "B.Tech. Computer Science and Engineering",
+        btechProgramme:
+          newRole === "admin"
+            ? undefined
             : "B.Tech. Computer Science and Engineering",
         updatedAt: new Date(),
       };
