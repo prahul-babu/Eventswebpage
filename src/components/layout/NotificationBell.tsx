@@ -80,12 +80,16 @@ export const NotificationBell: React.FC = () => {
     setIsOpen(false);
 
     // Contextual navigation based on notification payload
-    if (item.type === "ACCESS_REQUEST") {
+    if (item.type === "ACCESS_REQUEST" || item.type === "ACCESS_REQUESTED") {
       navigate("/admin/approvals");
     } else if (item.type === "ROLE_CHANGED") {
       navigate("/");
+    } else if (item.link) {
+      navigate(item.link);
     } else if (item.data?.link) {
       navigate(item.data.link as string);
+    } else if (item.data?.eventId) {
+      navigate(`/events/${item.data.eventId}`);
     }
   };
 

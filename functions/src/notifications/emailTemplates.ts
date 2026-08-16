@@ -14,7 +14,8 @@ export type EmailTemplateType =
   | "report-due"
   | "report-approved"
   | "report-changes-requested"
-  | "waitlist-promoted";
+  | "waitlist-promoted"
+  | "event-update";
 
 interface BaseEmailData {
   recipientName?: string;
@@ -348,6 +349,22 @@ export function renderEmailTemplate(
           <p>A seat has opened up for <strong>"${data.eventTitle}"</strong> and your waitlist registration is now confirmed!</p>`,
           ctaText: "Claim Your Ticket Pass",
           ctaLink: `${portalBaseUrl}/tickets/${data.registrationId}`,
+        }),
+      };
+
+    case "event-update":
+      return {
+        subject: `[Event Update] ${data.updateSubject || "Important Update"} – ${data.eventTitle}`,
+        html: wrapEmailHtml({
+          title: data.updateSubject || "Event Announcement",
+          bodyHtml: `<p>Dear ${data.recipientName || "Student"},</p>
+          <p>An official announcement has been dispatched regarding your registration for <strong>"${data.eventTitle}"</strong>:</p>
+          <div style="background-color: #f8fafc; border-left: 4px solid #007A99; padding: 16px; border-radius: 0 8px 8px 0; margin: 16px 0;">
+            <p style="margin: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${data.updateMessage || ""}</p>
+          </div>
+          <p style="font-size: 12px; color: #64748b;">Dispatched by: ${data.senderName || "Faculty Coordinator"}</p>`,
+          ctaText: "View Event & Updates",
+          ctaLink: `${portalBaseUrl}/events/${data.eventId}`,
         }),
       };
 

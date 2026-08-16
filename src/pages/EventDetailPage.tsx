@@ -25,6 +25,8 @@ import { useEventDetail, useEventUserRegistration } from "@/lib/queries/registra
 import { RegistrationDialog } from "@/components/events/RegistrationDialog";
 import { TicketPassDialog } from "@/components/events/TicketPassDialog";
 import { EventAttachmentsManager } from "@/components/attachments/EventAttachmentsManager";
+import { EventUpdatesSection } from "@/components/events/EventUpdatesSection";
+import { SendEventUpdateModal } from "@/components/events/SendEventUpdateModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +60,7 @@ export const EventDetailPage: React.FC = () => {
 
   const [registrationModalOpen, setRegistrationModalOpen] = useState(false);
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
+  const [sendUpdateModalOpen, setSendUpdateModalOpen] = useState(false);
   const [createdRegistration, setCreatedRegistration] = useState<any>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
@@ -474,7 +477,14 @@ export const EventDetailPage: React.FC = () => {
               </div>
             )}
 
-            {/* 8. Event Attachments & Documentation */}
+            {/* 8. Event Announcements & Updates */}
+            <EventUpdatesSection
+              eventId={event.id}
+              onOpenSendModal={() => setSendUpdateModalOpen(true)}
+              canSendUpdate={isAdmin || (isFaculty && isOrganiser)}
+            />
+
+            {/* 9. Event Attachments & Documentation */}
             <div className="p-6 bg-white rounded-3xl border border-slate-200/90 shadow-2xs">
               <EventAttachmentsManager
                 eventId={event.id}
@@ -720,6 +730,15 @@ export const EventDetailPage: React.FC = () => {
             className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
           />
         </div>
+      )}
+
+      {/* Send Event Update Modal */}
+      {event && (
+        <SendEventUpdateModal
+          open={sendUpdateModalOpen}
+          onOpenChange={setSendUpdateModalOpen}
+          event={event}
+        />
       )}
     </div>
   );

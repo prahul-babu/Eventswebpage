@@ -11,3 +11,4 @@ export * from "./payment";
 export * from "./report";
 export * from "./facultyApplication";
 export * from "./attachment";
+export * from "./update";
