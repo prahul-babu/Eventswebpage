@@ -1,7 +1,17 @@
-import React from "react";
-import { Loader2 } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Loader2, RefreshCw, LogIn } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export const AuthLoadingScreen: React.FC = () => {
+  const [showRetry, setShowRetry] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowRetry(true);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#F0F9FB] text-slate-900 selection:bg-[#007A99]/20">
       {/* Soft ambient university background glow */}
@@ -35,6 +45,36 @@ export const AuthLoadingScreen: React.FC = () => {
           <Loader2 className="w-4 h-4 text-[#007A99] animate-spin" />
           <span className="font-medium">Loading Apollo Event Hub...</span>
         </div>
+
+        {/* Timeout Fallback Recovery */}
+        {showRetry && (
+          <div className="pt-3 space-y-2 animate-fade-in">
+            <p className="text-[11px] text-slate-500">
+              Connection taking longer than usual. You can reload or proceed to login.
+            </p>
+            <div className="flex items-center justify-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => window.location.reload()}
+                className="h-8 text-xs rounded-xl gap-1"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Reload</span>
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  window.location.href = "/login";
+                }}
+                className="h-8 text-xs rounded-xl bg-[#004D61] hover:bg-[#003847] text-white font-bold gap-1"
+              >
+                <LogIn className="w-3 h-3" />
+                <span>Go to Login</span>
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

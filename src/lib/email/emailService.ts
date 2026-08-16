@@ -1,6 +1,11 @@
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { renderEventUpdateEmailHtml, EventUpdateEmailData } from "./emailTemplates";
+import {
+  renderEventUpdateEmailHtml,
+  EventUpdateEmailData,
+  renderAdminFacultyNotificationEmailHtml,
+  AdminFacultyEmailData,
+} from "./emailTemplates";
 
 export interface SendEmailResult {
   success: boolean;
@@ -42,6 +47,45 @@ export async function sendEventUpdateEmail(
     };
   } catch (error: any) {
     console.error(`[emailService] Failed to dispatch email to ${data.recipientEmail}:`, error);
+    return {
+      success: false,
+      error: error.message || "Failed to dispatch email",
+    };
+  }
+}
+
+/**
+ * Dispatch an Admin Update Email to a faculty member's official Outlook inbox
+ */
+export async function sendAdminFacultyNotificationEmail(
+  data: AdminFacultyEmailData
+): Promise<SendEmailResult> {
+  try {
+    const { subject, html } = renderAdminFacultyNotificationEmailHtml(data);
+
+    const mailRef = collection(db, "mail");
+    const docRef = await addDoc(mailRef, {
+      to: [data.recipientEmail],
+      message: {
+        subject,
+        html,
+        text: `${data.subject}\n\n${data.message}\n\nRecipient: ${data.recipientName} (${data.recipientEmail})\nDepartment: ${data.department || "B.Tech Faculty"}\n\nThis notification was sent by the University Event Hub administration.`,
+      },
+      createdAt: serverTimestamp(),
+      metadata: {
+        recipientEmail: data.recipientEmail,
+        recipientName: data.recipientName,
+        subject: data.subject,
+        type: "ADMIN_FACULTY_NOTIFICATION",
+      },
+    });
+
+    return {
+      success: true,
+      messageId: docRef.id,
+    };
+  } catch (error: any) {
+    console.error(`[emailService] Failed to dispatch admin email to ${data.recipientEmail}:`, error);
     return {
       success: false,
       error: error.message || "Failed to dispatch email",

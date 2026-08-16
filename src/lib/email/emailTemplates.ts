@@ -122,3 +122,102 @@ export function renderEventUpdateEmailHtml(data: EventUpdateEmailData): {
 
   return { subject: emailSubject, html };
 }
+
+export interface AdminFacultyEmailData {
+  recipientName: string;
+  recipientEmail: string;
+  subject: string;
+  message: string;
+  department?: string;
+  eventTitle?: string;
+  actionLink?: string;
+}
+
+/**
+ * Render official responsive HTML email for Admin -> Faculty Updates
+ */
+export function renderAdminFacultyNotificationEmailHtml(data: AdminFacultyEmailData): {
+  subject: string;
+  html: string;
+} {
+  const appUrl =
+    typeof window !== "undefined" && window.location.origin
+      ? window.location.origin
+      : "https://theapolloeventhub.web.app";
+
+  const directLink = data.actionLink || `${appUrl}/faculty/events`;
+  const emailSubject = `[Admin Update] ${data.subject}`;
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${data.subject}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; -webkit-font-smoothing: antialiased;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; padding: 32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; background-color: #ffffff; border-radius: 20px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          <!-- University Header -->
+          <tr>
+            <td style="background-color: #004D61; padding: 24px 32px; text-align: center;">
+              <div style="color: #fbbf24; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 4px;">THE APOLLO UNIVERSITY</div>
+              <div style="color: #ffffff; font-size: 18px; font-weight: 800; letter-spacing: -0.3px;">School of Technology • B.Tech Event Hub</div>
+            </td>
+          </tr>
+
+          <!-- Main Content -->
+          <tr>
+            <td style="padding: 32px;">
+              <div style="display: inline-block; background-color: #E0F3F7; color: #007A99; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 8px; margin-bottom: 12px;">
+                OFFICIAL FACULTY NOTICE
+              </div>
+
+              <h1 style="color: #0f172a; font-size: 20px; font-weight: 800; margin: 0 0 8px 0; line-height: 1.3;">
+                ${data.subject}
+              </h1>
+
+              <p style="color: #64748b; font-size: 13px; margin: 0 0 20px 0;">
+                Dear <strong>${data.recipientName}</strong>${data.department ? ` (${data.department})` : ""},
+              </p>
+
+              <!-- Message Box -->
+              <div style="background-color: #f8fafc; border-left: 4px solid #007A99; padding: 18px 20px; border-radius: 0 12px 12px 0; margin-bottom: 24px;">
+                <div style="font-size: 14px; line-height: 1.6; color: #334155; white-space: pre-wrap;">${data.message}</div>
+              </div>
+
+              ${
+                data.eventTitle
+                  ? `<div style="padding: 12px 16px; background-color: #f1f5f9; border-radius: 10px; font-size: 12px; margin-bottom: 24px; color: #475569;">
+                      <strong>Related Event Context:</strong> ${data.eventTitle}
+                     </div>`
+                  : ""
+              }
+
+              <!-- CTA Button -->
+              <div style="margin: 28px 0; text-align: center;">
+                <a href="${directLink}" style="background-color: #004D61; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 12px; font-weight: 700; font-size: 14px; display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                  Open Faculty Portal &rarr;
+                </a>
+              </div>
+
+              <!-- Sign-off -->
+              <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #64748b; line-height: 1.5;">
+                <p style="margin: 0 0 6px 0;">This notification was sent by the <strong>University Event Hub Administration</strong>.</p>
+                <p style="margin: 0; font-size: 11px; color: #94a3b8;">The Apollo University • School of Technology • Murukambattu, Chittoor, AP – 517127</p>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  return { subject: emailSubject, html };
+}

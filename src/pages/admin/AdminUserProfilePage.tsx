@@ -11,10 +11,12 @@ import {
   Loader2,
   CheckCircle2,
   AlertTriangle,
+  Mail,
 } from "lucide-react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAdminUserDetail } from "@/lib/queries/adminUsers";
+import { SendFacultyNotificationModal } from "@/components/admin/SendFacultyNotificationModal";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +38,7 @@ export const AdminUserProfilePage: React.FC = () => {
   const { data, isLoading } = useAdminUserDetail(uid);
 
   const [activeTab, setActiveTab] = useState<"overview" | "events" | "registrations" | "payments">("overview");
+  const [notifyModalOpen, setNotifyModalOpen] = useState(false);
 
   // Editable fields
   const [department, setDepartment] = useState("");
@@ -157,18 +160,29 @@ export const AdminUserProfilePage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-xs text-slate-500">
+          <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap sm:flex-nowrap justify-between sm:justify-end w-full sm:w-auto">
             <div>
               <span className="text-[10px] text-slate-400 font-bold uppercase block">Joined</span>
               <strong className="text-slate-800">
                 {safeFormatDate(user.createdAt, "MMM d, yyyy", "N/A")}
               </strong>
             </div>
-            <div className="h-8 w-px bg-slate-200" />
+            <div className="h-8 w-px bg-slate-200 hidden sm:block" />
             <div>
               <span className="text-[10px] text-slate-400 font-bold uppercase block">UID</span>
               <strong className="text-slate-800 font-mono">{(user.uid || "").slice(0, 10)}...</strong>
             </div>
+
+            {user.role === "faculty" && (
+              <Button
+                size="sm"
+                onClick={() => setNotifyModalOpen(true)}
+                className="bg-[#007A99] hover:bg-[#006883] text-white rounded-xl text-xs font-bold gap-1.5 shadow-xs"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Send Notification</span>
+              </Button>
+            )}
           </div>
         </div>
       </Card>
@@ -403,6 +417,21 @@ export const AdminUserProfilePage: React.FC = () => {
             )}
           </div>
         </Card>
+      )}
+
+      {/* Send Faculty Notification Modal */}
+      {user.role === "faculty" && (
+        <SendFacultyNotificationModal
+          open={notifyModalOpen}
+          onOpenChange={setNotifyModalOpen}
+          faculty={{
+            uid: user.uid,
+            name: user.displayName || "Faculty Member",
+            email: user.email,
+            department: user.department,
+            employeeId: user.employeeId,
+          }}
+        />
       )}
     </div>
   );

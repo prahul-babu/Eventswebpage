@@ -12,8 +12,11 @@ import {
   Loader2,
   UserPlus,
   Trash2,
+  Mail,
 } from "lucide-react";
 import { useAdminUsersDirectory, useSetUserRole, useDeleteUser } from "@/lib/queries/adminUsers";
+import { SendFacultyNotificationModal } from "@/components/admin/SendFacultyNotificationModal";
+import type { FacultyRecipient } from "@/lib/queries/adminNotifications";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -59,6 +62,9 @@ export const AdminUsersPage: React.FC = () => {
   // Delete user modal
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+
+  // Notify faculty modal
+  const [notifyFacultyTarget, setNotifyFacultyTarget] = useState<FacultyRecipient | null>(null);
 
   const { data: users, isLoading } = useAdminUsersDirectory({
     searchQuery,
@@ -362,6 +368,24 @@ export const AdminUsersPage: React.FC = () => {
                               <span>Reset to Pending</span>
                             </DropdownMenuItem>
 
+                            {user.role === "faculty" && (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setNotifyFacultyTarget({
+                                    uid: user.uid,
+                                    name: user.displayName || "Faculty Member",
+                                    email: user.email,
+                                    department: user.department,
+                                    employeeId: user.employeeId,
+                                  });
+                                }}
+                                className="gap-2 cursor-pointer text-[#007A99] font-bold"
+                              >
+                                <Mail className="w-3.5 h-3.5 text-[#007A99]" />
+                                <span>Send Notification</span>
+                              </DropdownMenuItem>
+                            )}
+
                             <DropdownMenuSeparator />
 
                             <DropdownMenuItem
@@ -462,6 +486,15 @@ export const AdminUsersPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Send Faculty Notification Modal */}
+      {notifyFacultyTarget && (
+        <SendFacultyNotificationModal
+          open={Boolean(notifyFacultyTarget)}
+          onOpenChange={(open) => !open && setNotifyFacultyTarget(null)}
+          faculty={notifyFacultyTarget}
+        />
+      )}
     </div>
   );
 };

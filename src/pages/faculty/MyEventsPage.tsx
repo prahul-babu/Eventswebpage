@@ -13,6 +13,7 @@ import {
   ArrowUpDown,
   Loader2,
   FileText,
+  Megaphone,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -20,6 +21,7 @@ import {
   useWithdrawEvent,
   useSubmitEventForApproval,
 } from "@/lib/queries/faculty";
+import { SendEventUpdateModal } from "@/components/events/SendEventUpdateModal";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +49,7 @@ export const MyEventsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<"createdAt" | "title" | "registeredCount">("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [selectedEventForUpdate, setSelectedEventForUpdate] = useState<any | null>(null);
 
   // Filtering & Sorting
   const filteredEvents = useMemo(() => {
@@ -320,6 +323,17 @@ export const MyEventsPage: React.FC = () => {
                                 </DropdownMenuItem>
                               )}
 
+                              {/* Send Update to Registered Students */}
+                              {(event.status === "PUBLISHED" || event.status === "ONGOING" || event.status === "COMPLETED") && (
+                                <DropdownMenuItem
+                                  onClick={() => setSelectedEventForUpdate(event)}
+                                  className="gap-2 cursor-pointer text-[#007A99] font-bold"
+                                >
+                                  <Megaphone className="w-3.5 h-3.5" />
+                                  <span>Send Update</span>
+                                </DropdownMenuItem>
+                              )}
+
                               {/* Submit Report if Completed */}
                               {event.status === "COMPLETED" && (
                                 <DropdownMenuItem asChild>
@@ -350,6 +364,15 @@ export const MyEventsPage: React.FC = () => {
           </div>
         </Card>
       </div>
+
+      {/* Send Event Update Modal */}
+      {selectedEventForUpdate && (
+        <SendEventUpdateModal
+          open={Boolean(selectedEventForUpdate)}
+          onOpenChange={(open) => !open && setSelectedEventForUpdate(null)}
+          event={selectedEventForUpdate}
+        />
+      )}
     </div>
   );
 };

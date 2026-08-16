@@ -12,6 +12,7 @@ import {
   XCircle,
   Building2,
   User as UserIcon,
+  Mail,
 } from "lucide-react";
 import {
   usePendingApprovals,
@@ -23,6 +24,8 @@ import {
   useApproveFacultyApplication,
   useRejectFacultyApplication,
 } from "@/lib/queries/adminUsers";
+import { SendFacultyNotificationModal } from "@/components/admin/SendFacultyNotificationModal";
+import type { FacultyRecipient } from "@/lib/queries/adminNotifications";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +55,7 @@ export const AdminApprovalsPage: React.FC = () => {
   const [approveModalOpen, setApproveModalOpen] = useState(false);
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [notifyFacultyTarget, setNotifyFacultyTarget] = useState<{ faculty: FacultyRecipient; eventContext?: { eventId: string; eventTitle: string } } | null>(null);
 
   const { data: pendingEvents, isLoading: isPendingLoading } = usePendingApprovals();
   const { data: approvedEvents, isLoading: isApprovedLoading } = useRecentlyReviewedEvents("APPROVED");
@@ -494,6 +498,26 @@ export const AdminApprovalsPage: React.FC = () => {
                             >
                               <Eye className="w-3 h-3" />
                               <span>View Details</span>
+                            </Button>
+
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setNotifyFacultyTarget({
+                                  faculty: {
+                                    uid: app.uid || app.id,
+                                    name: app.fullName || "Faculty Applicant",
+                                    email: app.officialEmail || (app as any).email || "",
+                                    department: app.department,
+                                    employeeId: app.employeeId,
+                                  },
+                                });
+                              }}
+                              className="h-8 rounded-xl text-xs gap-1 text-[#007A99] border-cyan-200 hover:bg-[#E0F3F7]"
+                            >
+                              <Mail className="w-3 h-3" />
+                              <span>Message</span>
                             </Button>
 
                             {(String(app.status).toLowerCase() === "pending" ||
@@ -948,6 +972,16 @@ export const AdminApprovalsPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Send Faculty Notification Modal */}
+      {notifyFacultyTarget && (
+        <SendFacultyNotificationModal
+          open={Boolean(notifyFacultyTarget)}
+          onOpenChange={(open) => !open && setNotifyFacultyTarget(null)}
+          faculty={notifyFacultyTarget.faculty}
+          eventContext={notifyFacultyTarget.eventContext}
+        />
+      )}
     </div>
   );
 };

@@ -12,7 +12,18 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { formatDistanceToNow } from "date-fns";
-import { Bell, CheckCheck, Inbox, ExternalLink } from "lucide-react";
+import {
+  Bell,
+  CheckCheck,
+  Inbox,
+  ExternalLink,
+  ShieldCheck,
+  Megaphone,
+  Calendar,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+} from "lucide-react";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth-context";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -24,10 +35,15 @@ import { toast } from "sonner";
 
 export interface NotificationItem extends AdminNotification {
   id: string;
+  isRead?: boolean;
+  eventName?: string;
+  eventTitle?: string;
+  senderRole?: string;
+  senderName?: string;
 }
 
 export const NotificationBell: React.FC = () => {
-  const { firebaseUser } = useAuth();
+  const { firebaseUser, profile } = useAuth();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -38,23 +54,72 @@ export const NotificationBell: React.FC = () => {
       return;
     }
 
-    // Query recent notifications for current user
+    const currentUid = firebaseUser.uid;
+    const currentEmail = (firebaseUser.email || profile?.email || "").toLowerCase().trim();
+
+    // Query recent notifications for current user by UID
     const notifsRef = collection(db, "notifications");
-    const q = query(
+    const qUid = query(
       notifsRef,
-      where("recipientUid", "==", firebaseUser.uid),
+      where("recipientUid", "==", currentUid),
       orderBy("createdAt", "desc"),
-      limit(10)
+      limit(20)
     );
 
     const unsubscribe = onSnapshot(
-      q,
+      qUid,
       (snapshot) => {
-        const items: NotificationItem[] = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...(docSnap.data() as AdminNotification),
-        }));
-        setNotifications(items);
+        const itemsMap = new Map<string, NotificationItem>();
+
+        snapshot.docs.forEach((docSnap) => {
+          const raw = docSnap.data() as any;
+          const isRead = raw.isRead ?? raw.read ?? false;
+          itemsMap.set(docSnap.id, {
+            id: docSnap.id,
+            ...raw,
+            read: isRead,
+            isRead,
+          });
+        });
+
+        // Also if currentEmail is present, fallback query items assigned to email
+        if (currentEmail) {
+          const qEmail = query(
+            notifsRef,
+            where("recipientEmail", "==", currentEmail),
+            orderBy("createdAt", "desc"),
+            limit(15)
+          );
+
+          onSnapshot(
+            qEmail,
+            (emailSnap) => {
+              emailSnap.docs.forEach((docSnap) => {
+                if (!itemsMap.has(docSnap.id)) {
+                  const raw = docSnap.data() as any;
+                  const isRead = raw.isRead ?? raw.read ?? false;
+                  itemsMap.set(docSnap.id, {
+                    id: docSnap.id,
+                    ...raw,
+                    read: isRead,
+                    isRead,
+                  });
+                }
+              });
+
+              const sorted = Array.from(itemsMap.values()).sort(
+                (a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
+              );
+              setNotifications(sorted);
+            },
+            () => {}
+          );
+        } else {
+          const sorted = Array.from(itemsMap.values()).sort(
+            (a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
+          );
+          setNotifications(sorted);
+        }
       },
       (err) => {
         console.warn("[NotificationBell] Snapshot notice:", err.message);
@@ -62,16 +127,18 @@ export const NotificationBell: React.FC = () => {
     );
 
     return () => unsubscribe();
-  }, [firebaseUser?.uid]);
+  }, [firebaseUser?.uid, firebaseUser?.email, profile?.email]);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !(n.isRead ?? n.read)).length;
   const displayCount = unreadCount > 9 ? "9+" : unreadCount.toString();
 
   const handleItemClick = async (item: NotificationItem) => {
-    if (!item.read) {
+    const isCurrentlyRead = item.isRead ?? item.read;
+
+    if (!isCurrentlyRead) {
       try {
         const notifDocRef = doc(db, "notifications", item.id);
-        await updateDoc(notifDocRef, { read: true });
+        await updateDoc(notifDocRef, { read: true, isRead: true, readAt: new Date() });
       } catch (err) {
         console.error("[NotificationBell] Error marking read:", err);
       }
@@ -80,7 +147,17 @@ export const NotificationBell: React.FC = () => {
     setIsOpen(false);
 
     // Contextual navigation based on notification payload
-    if (item.type === "ACCESS_REQUEST" || item.type === "ACCESS_REQUESTED") {
+    const eventId = item.data?.eventId || (item as any).eventId;
+
+    if (item.type === "ADMIN_FACULTY_UPDATE") {
+      navigate(item.link || (eventId ? `/faculty/events` : "/faculty/events"));
+    } else if (item.type === "FACULTY_EVENT_UPDATE" || item.type === "EVENT_UPDATED" || item.type === "EVENT_UPDATE") {
+      if (eventId) {
+        navigate(`/events/${eventId}#updates`);
+      } else {
+        navigate(item.link || "/registrations");
+      }
+    } else if (item.type === "ACCESS_REQUEST" || item.type === "ACCESS_REQUESTED") {
       navigate("/admin/approvals");
     } else if (item.type === "ROLE_CHANGED") {
       navigate("/");
@@ -88,8 +165,8 @@ export const NotificationBell: React.FC = () => {
       navigate(item.link);
     } else if (item.data?.link) {
       navigate(item.data.link as string);
-    } else if (item.data?.eventId) {
-      navigate(`/events/${item.data.eventId}`);
+    } else if (eventId) {
+      navigate(`/events/${eventId}`);
     }
   };
 
@@ -99,10 +176,10 @@ export const NotificationBell: React.FC = () => {
     try {
       const batch = writeBatch(db);
       notifications
-        .filter((n) => !n.read)
+        .filter((n) => !(n.isRead ?? n.read))
         .forEach((item) => {
           const docRef = doc(db, "notifications", item.id);
-          batch.update(docRef, { read: true });
+          batch.update(docRef, { read: true, isRead: true, readAt: new Date() });
         });
 
       await batch.commit();
@@ -111,6 +188,60 @@ export const NotificationBell: React.FC = () => {
       console.error("[NotificationBell] Error marking all read:", err);
       toast.error("Failed to mark all as read");
     }
+  };
+
+  const getNotificationBadge = (item: NotificationItem) => {
+    const t = item.type;
+    if (t === "ADMIN_FACULTY_UPDATE") {
+      return (
+        <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 font-bold bg-purple-50 text-purple-700 border-purple-200">
+          Admin Update
+        </Badge>
+      );
+    }
+    if (t === "FACULTY_EVENT_UPDATE" || t === "EVENT_UPDATED" || t === "EVENT_UPDATE") {
+      return (
+        <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 font-bold bg-[#E0F3F7] text-[#007A99] border-cyan-200">
+          Faculty Update
+        </Badge>
+      );
+    }
+    if (t === "EVENT_APPROVED") {
+      return (
+        <Badge variant="emerald" className="text-[10px] py-0 px-1.5 h-4 font-bold">
+          Approved
+        </Badge>
+      );
+    }
+    if (t === "EVENT_REJECTED") {
+      return (
+        <Badge variant="destructive" className="text-[10px] py-0 px-1.5 h-4 font-bold">
+          Needs Revision
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 font-semibold text-slate-600">
+        Notice
+      </Badge>
+    );
+  };
+
+  const getNotificationIcon = (item: NotificationItem) => {
+    const t = item.type;
+    if (t === "ADMIN_FACULTY_UPDATE") {
+      return <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0" />;
+    }
+    if (t === "FACULTY_EVENT_UPDATE" || t === "EVENT_UPDATED" || t === "EVENT_UPDATE") {
+      return <Megaphone className="w-4 h-4 text-[#007A99] shrink-0" />;
+    }
+    if (t === "EVENT_APPROVED") {
+      return <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />;
+    }
+    if (t === "EVENT_REJECTED") {
+      return <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />;
+    }
+    return <Calendar className="w-4 h-4 text-indigo-600 shrink-0" />;
   };
 
   if (!firebaseUser) {
@@ -123,24 +254,24 @@ export const NotificationBell: React.FC = () => {
         <button
           type="button"
           aria-label={`Notifications (${unreadCount} unread)`}
-          className="relative p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="relative p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors focus:outline-none focus:ring-2 focus:ring-[#007A99] cursor-pointer"
         >
-          <Bell className="w-5 h-5" />
+          <Bell className="w-5 h-5 text-slate-700" />
           {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-amber-500 rounded-full border-2 border-white animate-pulse">
+            <span className="absolute top-1 right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black text-white bg-[#F5A623] rounded-full border-2 border-white animate-pulse">
               {displayCount}
             </span>
           )}
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-80 sm:w-96 p-0 rounded-2xl shadow-2xl border-slate-200">
+      <PopoverContent align="end" className="w-80 sm:w-96 p-0 rounded-3xl shadow-2xl border-slate-200 overflow-hidden bg-white z-50">
         {/* Popover Header */}
-        <div className="flex items-center justify-between p-4 border-b bg-slate-50/70 rounded-t-2xl">
+        <div className="flex items-center justify-between p-4 border-b bg-slate-50/80 rounded-t-3xl">
           <div className="flex items-center gap-2">
             <h4 className="font-bold text-sm text-slate-900">Notifications</h4>
             {unreadCount > 0 && (
-              <Badge variant="amber" className="text-[10px] py-0 px-1.5 h-4">
+              <Badge variant="secondary" className="text-[10px] font-black bg-[#F5A623] text-slate-950 px-1.5 py-0.2">
                 {unreadCount} new
               </Badge>
             )}
@@ -152,53 +283,70 @@ export const NotificationBell: React.FC = () => {
               variant="ghost"
               size="sm"
               onClick={handleMarkAllAsRead}
-              className="text-[11px] h-7 px-2 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50"
+              className="text-[11px] h-7 px-2 text-[#007A99] hover:text-[#004D61] hover:bg-[#E0F3F7] font-bold rounded-lg cursor-pointer"
             >
               <CheckCheck className="w-3.5 h-3.5 mr-1" />
-              <span>Mark all read</span>
+              <span>Mark all as read</span>
             </Button>
           )}
         </div>
 
         {/* Notifications List */}
-        <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+        <div className="max-h-[380px] overflow-y-auto divide-y divide-slate-100">
           {notifications.length === 0 ? (
             <div className="p-8 text-center space-y-2 text-slate-400">
               <Inbox className="w-8 h-8 mx-auto stroke-1 text-slate-300" />
-              <p className="text-xs font-medium">No notifications yet</p>
-              <p className="text-[11px] text-slate-400">We'll alert you when campus updates arrive.</p>
+              <p className="text-xs font-medium text-slate-600">No notifications yet</p>
+              <p className="text-[11px] text-slate-400">We'll alert you when event updates or administrative notices arrive.</p>
             </div>
           ) : (
             notifications.map((item) => {
+              const isItemRead = item.isRead ?? item.read ?? false;
               const dateObj = toDate(item.createdAt);
               const relativeTime = formatDistanceToNow(dateObj, { addSuffix: true });
+              const eventContextName = item.eventName || item.eventTitle || item.data?.eventTitle;
 
               return (
                 <div
                   key={item.id}
                   onClick={() => handleItemClick(item)}
-                  className={`p-3.5 text-left cursor-pointer transition-colors hover:bg-slate-50 flex items-start gap-3 ${
-                    !item.read ? "bg-indigo-50/40" : ""
+                  className={`p-3.5 text-left cursor-pointer transition-colors hover:bg-slate-50 flex items-start gap-3 relative ${
+                    !isItemRead ? "bg-[#E0F3F7]/30" : ""
                   }`}
                 >
-                  <div className="pt-0.5 shrink-0">
-                    <span
-                      className={`inline-block w-2 h-2 rounded-full ${
-                        !item.read ? "bg-amber-500 ring-4 ring-amber-100" : "bg-slate-300"
-                      }`}
-                    />
+                  {/* Icon & Unread Dot */}
+                  <div className="pt-0.5 shrink-0 relative">
+                    <div className="w-7 h-7 rounded-xl bg-white border border-slate-200/80 shadow-2xs flex items-center justify-center">
+                      {getNotificationIcon(item)}
+                    </div>
+                    {!isItemRead && (
+                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#F5A623] ring-2 ring-white animate-ping" />
+                    )}
                   </div>
 
-                  <div className="flex-1 min-w-0 space-y-0.5">
-                    <div className="flex items-center justify-between gap-1">
-                      <p className={`text-xs truncate ${!item.read ? "font-bold text-slate-900" : "font-medium text-slate-700"}`}>
-                        {item.title}
-                      </p>
-                      <span className="text-[10px] text-slate-400 shrink-0">{relativeTime}</span>
+                  {/* Body Content */}
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {getNotificationBadge(item)}
+                        {eventContextName && (
+                          <span className="text-[10px] font-bold text-[#007A99] truncate max-w-[130px]">
+                            {eventContextName}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-400 shrink-0 flex items-center gap-0.5">
+                        <Clock className="w-2.5 h-2.5" />
+                        {relativeTime}
+                      </span>
                     </div>
 
+                    <p className={`text-xs leading-snug line-clamp-1 ${!isItemRead ? "font-bold text-slate-900" : "font-semibold text-slate-700"}`}>
+                      {item.title}
+                    </p>
+
                     <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
-                      {item.message}
+                      {item.message || item.body}
                     </p>
                   </div>
 
@@ -212,3 +360,4 @@ export const NotificationBell: React.FC = () => {
     </Popover>
   );
 };
+export default NotificationBell;

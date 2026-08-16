@@ -19,8 +19,10 @@ import {
   MessageSquare,
   FileCheck,
   Check,
+  Mail,
 } from "lucide-react";
 import { useEventDetail } from "@/lib/queries/events";
+import { SendFacultyNotificationModal } from "@/components/admin/SendFacultyNotificationModal";
 import {
   useOrganiserStats,
   useVenueConflicts,
@@ -81,6 +83,7 @@ export const AdminEventReviewPage: React.FC = () => {
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [decisionType, setDecisionType] = useState<"REJECTED" | "CHANGES_REQUESTED">("CHANGES_REQUESTED");
   const [rejectionReason, setRejectionReason] = useState("");
+  const [notifyModalOpen, setNotifyModalOpen] = useState(false);
 
   const toggleChecklist = (key: keyof typeof checklist) => {
     setChecklist((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -335,6 +338,18 @@ export const AdminEventReviewPage: React.FC = () => {
                 <span className="font-extrabold text-indigo-700">
                   {organiserStats?.approvedEventsCount || 0} approved ({organiserStats?.totalEventsHosted || 0} total)
                 </span>
+              </div>
+
+              <div className="pt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setNotifyModalOpen(true)}
+                  className="w-full h-8 rounded-xl text-xs font-bold text-[#007A99] border-cyan-200 hover:bg-[#E0F3F7] gap-1.5"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>Message Faculty Organiser</span>
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -609,6 +624,24 @@ export const AdminEventReviewPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Send Faculty Notification Modal */}
+      {event && (
+        <SendFacultyNotificationModal
+          open={notifyModalOpen}
+          onOpenChange={setNotifyModalOpen}
+          faculty={{
+            uid: event.organiserId,
+            name: event.organiserName || "Faculty Organiser",
+            email: event.organiserEmail || "",
+            department: event.department,
+          }}
+          eventContext={{
+            eventId: event.id,
+            eventTitle: event.title,
+          }}
+        />
+      )}
     </div>
   );
 };
