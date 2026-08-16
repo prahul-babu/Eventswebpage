@@ -1,7 +1,8 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate, Navigate } from "react-router-dom";
-import { useAuth, getPostLoginRoute } from "@/lib/auth-context";
-import { auth } from "@/lib/firebase";
+import { useAuth } from "@/lib/auth-context";
+import { auth, db } from "@/lib/firebase";
+import { doc, getDoc, onSnapshot, collection, query, where, getDocs } from "firebase/firestore";
 import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,12 +19,18 @@ import {
   ArrowRight,
   LogOut,
   RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { UserStatus } from "@/types";
 
 export const PendingPage: React.FC = () => {
   const { firebaseUser, isAuthenticated, profile, role, status, isLoading, isAuthenticating, refreshClaims, signOut } = useAuth();
   const navigate = useNavigate();
+
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<UserStatus | null>(status || (profile?.status as UserStatus) || null);
+  const [liveRejectionReason, setLiveRejectionReason] = useState<string | null>(profile?.rejectionReason || null);
 
   // Show loading screen while auth resolves
   if (isLoading || isAuthenticating) {
@@ -32,44 +39,150 @@ export const PendingPage: React.FC = () => {
 
   // If unauthenticated, redirect to login
   if (!isAuthenticated || !firebaseUser) {
-    console.error("[REDIRECT 15] exact reason if RequireAuth redirects to /login:", {
-      currentPath: window.location.pathname,
-      firebaseUser: auth.currentUser?.uid || null,
-      email: auth.currentUser?.email || null,
-      role: role || null,
-      status: status || null,
-      reason: "Unauthenticated access on /pending",
-    });
     return <Navigate to="/login" replace />;
   }
 
-  // Real-time listener: Watch for status flip to ACTIVE
-  useEffect(() => {
-    if (status === "ACTIVE" || (profile && profile.status === "ACTIVE")) {
-      toast.success("Account Approved!", {
-        description: "Your campus account has been activated by the administrator.",
-      });
-      refreshClaims().then(() => {
-        navigate(getPostLoginRoute(profile?.role || role, "ACTIVE"));
-      });
-    }
-  }, [status, profile, role, refreshClaims, navigate]);
+  const currentUser = auth.currentUser || firebaseUser;
+  const uid = currentUser?.uid;
 
-  const isRejected = status === "REJECTED" || (profile && profile.status === "REJECTED");
-  const isApproved = status === "ACTIVE" || (profile && profile.status === "ACTIVE");
+  // Real-time Firestore onSnapshot listener on users/{uid}
+  useEffect(() => {
+    if (!uid) return;
+
+    const userDocRef = doc(db, "users", uid);
+    const unsubscribe = onSnapshot(
+      userDocRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const userData = docSnap.data();
+          const rawStatus = String(userData.status || "").toUpperCase();
+          const currentStatus: UserStatus =
+            rawStatus === "ACTIVE"
+              ? "ACTIVE"
+              : rawStatus === "REJECTED"
+              ? "REJECTED"
+              : "PENDING_APPROVAL";
+
+          setLiveStatus(currentStatus);
+          if (userData.rejectionReason) {
+            setLiveRejectionReason(userData.rejectionReason);
+          }
+
+          if (currentStatus === "ACTIVE") {
+            toast.success("Your faculty access has been approved.", {
+              description: "Redirecting to Faculty Portal...",
+            });
+            try {
+              localStorage.setItem("apollo_user_status", "ACTIVE");
+            } catch {}
+            refreshClaims().then(() => {
+              navigate("/faculty/events", { replace: true });
+            });
+          }
+        }
+      },
+      (error) => {
+        console.warn("[PendingPage] onSnapshot listener notice:", error);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [uid, navigate, refreshClaims]);
+
+  // "Check Status Now" fresh Firestore read
+  const handleCheckStatusNow = useCallback(async () => {
+    if (!uid) return;
+    setIsCheckingStatus(true);
+
+    try {
+      // 1. Direct fetch users/{uid}
+      const userDocRef = doc(db, "users", uid);
+      const snap = await getDoc(userDocRef);
+      let userData: any = snap.exists() ? snap.data() : null;
+
+      // Fallback query if document not stored by UID directly
+      if (!userData && currentUser.email) {
+        const qByEmail = query(
+          collection(db, "users"),
+          where("email", "==", currentUser.email.toLowerCase().trim())
+        );
+        const emailSnap = await getDocs(qByEmail);
+        if (!emailSnap.empty) {
+          userData = emailSnap.docs[0].data();
+        }
+      }
+
+      if (!userData) {
+        // Also check facultyApplications
+        const qApp = query(
+          collection(db, "facultyApplications"),
+          where("uid", "==", uid)
+        );
+        const appSnap = await getDocs(qApp);
+        if (!appSnap.empty) {
+          userData = appSnap.docs[0].data();
+        }
+      }
+
+      const rawStatus = String(userData?.status || "").toUpperCase();
+      const currentStatus: UserStatus =
+        rawStatus === "ACTIVE" || rawStatus === "APPROVED"
+          ? "ACTIVE"
+          : rawStatus === "REJECTED"
+          ? "REJECTED"
+          : "PENDING_APPROVAL";
+
+      setLiveStatus(currentStatus);
+      if (userData?.rejectionReason) {
+        setLiveRejectionReason(userData.rejectionReason);
+      }
+
+      if (currentStatus === "ACTIVE") {
+        toast.success("Your faculty access has been approved.", {
+          description: "Access confirmed! Entering Faculty Portal...",
+        });
+        try {
+          localStorage.setItem("apollo_user_status", "ACTIVE");
+        } catch {}
+        await refreshClaims();
+        navigate("/faculty/events", { replace: true });
+      } else if (currentStatus === "REJECTED") {
+        toast.error("Your application was rejected.", {
+          description: "Your faculty access request was rejected. Please contact the administrator.",
+        });
+      } else {
+        toast.info("Your application is still under review.", {
+          description: "Your faculty access request is still awaiting administrator approval.",
+        });
+      }
+    } catch (err: any) {
+      console.error("[PendingPage] Error checking status:", err);
+      toast.error("Status Check Notice", {
+        description: err.message || "Unable to retrieve status. Please try again.",
+      });
+    } finally {
+      setIsCheckingStatus(false);
+    }
+  }, [uid, currentUser.email, navigate, refreshClaims]);
+
+  const effectiveStatus = liveStatus || status || (profile?.status as UserStatus);
+  const isRejected = effectiveStatus === "REJECTED";
+  const isApproved = effectiveStatus === "ACTIVE";
 
   const displayName = profile?.displayName || firebaseUser.displayName || "Campus Member";
   const userEmail = profile?.email || firebaseUser.email || "";
-  const roleName = profile?.role || "student";
-  const department = profile?.department || "General Administration";
-  const submittedAt = profile?.createdAt ? new Date(profile.createdAt).toLocaleString() : "Just now";
+  const roleName = profile?.role || role || "faculty";
+  const department = profile?.department || "School of Technology";
+  const submittedAt = profile?.createdAt ? new Date(profile.createdAt).toLocaleString() : "Recently";
   const idNumber = profile?.rollNumber || profile?.employeeId || null;
 
   return (
     <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center px-4 sm:px-6 lg:px-8 py-12">
       <div className="w-full max-w-lg">
         <Card className="border-slate-200/90 shadow-2xl rounded-2xl bg-white/95 backdrop-blur-sm overflow-hidden">
-          {/* Calm Header */}
+          {/* Header */}
           <CardHeader className="text-center pt-8 pb-4">
             <div className="relative mx-auto mb-3">
               {isApproved ? (
@@ -118,7 +231,8 @@ export const PendingPage: React.FC = () => {
                 <XCircle className="h-4 w-4 text-rose-600" />
                 <AlertTitle className="font-semibold text-rose-950">Administrator Note</AlertTitle>
                 <AlertDescription className="text-rose-900/90 mt-1">
-                  {profile?.rejectionReason ||
+                  {liveRejectionReason ||
+                    profile?.rejectionReason ||
                     "Your details could not be matched against the active university database. Please contact the campus IT desk."}
                 </AlertDescription>
               </Alert>
@@ -196,8 +310,8 @@ export const PendingPage: React.FC = () => {
 
             {isApproved ? (
               <Button asChild size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white w-full sm:w-auto">
-                <Link to="/">
-                  <span>Go to Event Hub</span>
+                <Link to="/faculty/events">
+                  <span>Go to Faculty Portal</span>
                   <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
                 </Link>
               </Button>
@@ -218,11 +332,21 @@ export const PendingPage: React.FC = () => {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => refreshClaims()}
-                className="text-indigo-600 border-indigo-200 hover:bg-indigo-50 w-full sm:w-auto"
+                disabled={isCheckingStatus}
+                onClick={handleCheckStatusNow}
+                className="text-indigo-600 border-indigo-200 hover:bg-indigo-50 w-full sm:w-auto font-bold"
               >
-                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-                <span>Check Status Now</span>
+                {isCheckingStatus ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    <span>Checking approval status...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                    <span>Check Status Now</span>
+                  </>
+                )}
               </Button>
             )}
           </CardFooter>
@@ -231,3 +355,4 @@ export const PendingPage: React.FC = () => {
     </div>
   );
 };
+export default PendingPage;

@@ -5,7 +5,7 @@ export const USER_ROLES = ["student", "faculty", "admin"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 // User Account Statuses
-export const USER_STATUSES = ["PENDING", "ACTIVE", "SUSPENDED", "REJECTED"] as const;
+export const USER_STATUSES = ["PENDING", "PENDING_APPROVAL", "ACTIVE", "SUSPENDED", "REJECTED"] as const;
 export type UserStatus = (typeof USER_STATUSES)[number];
 
 // Notification Types

@@ -58,7 +58,7 @@ export function getPostLoginRoute(
     return "/account-blocked";
   }
 
-  if (effRole === "faculty" && effStatus === "PENDING") {
+  if (effRole === "faculty" && (effStatus === "PENDING" || effStatus === "PENDING_APPROVAL")) {
     return "/pending";
   }
 
@@ -380,8 +380,8 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
         const profileRole: UserRole = (userData.role || "student").toLowerCase() as UserRole;
         const rawStatus = userData.status ? String(userData.status).toUpperCase() : "ACTIVE";
         const profileStatus: UserStatus = (
-          rawStatus === "PENDING"
-            ? "PENDING"
+          rawStatus === "PENDING" || rawStatus === "PENDING_APPROVAL"
+            ? "PENDING_APPROVAL"
             : rawStatus === "SUSPENDED"
             ? "SUSPENDED"
             : rawStatus === "REJECTED"
@@ -436,7 +436,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
               clearPersistedRole();
               setIsLoading(false);
               setIsAuthenticating(false);
-              throw new Error("Your faculty registration was not approved. Please contact the administrator.");
+              throw new Error("Your faculty access request has been rejected.");
             }
 
             console.log("[AUTH] authorization result: PENDING_APPROVAL");
@@ -447,7 +447,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             clearPersistedRole();
             setIsLoading(false);
             setIsAuthenticating(false);
-            throw new Error("Your faculty account is still awaiting admin approval.");
+            throw new Error("Your faculty account is awaiting administrator approval.");
           }
         }
 
@@ -591,7 +591,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
       const trimmedEmail = payload.email.toLowerCase().trim();
       const trimmedName = payload.displayName.trim();
       const effRole: UserRole = (payload.role || "student").toLowerCase() as UserRole;
-      const effStatus: UserStatus = effRole === "faculty" ? "PENDING" : "ACTIVE";
+      const effStatus: UserStatus = effRole === "faculty" ? "PENDING_APPROVAL" : "ACTIVE";
 
       // 1. Immediately cache the authoritative selected role
       persistUserRole(effRole, effStatus);
@@ -622,14 +622,15 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             fullName: trimmedName,
             email: trimmedEmail,
             officialEmail: trimmedEmail,
+            mobile: payload.phoneNumber || "",
             mobileNumber: payload.phoneNumber || "",
             employeeId: payload.employeeId ? payload.employeeId.trim().toUpperCase() : "",
             department: payload.department || "School of Technology",
             school: payload.school || "School of Technology",
             designation: payload.designation || "Assistant Professor",
-            alternateEmail: payload.alternateEmail || "",
+            alternateEmail: payload.alternateEmail || null,
             role: "faculty",
-            status: "PENDING",
+            status: "PENDING_APPROVAL",
             approvalStatus: "pending",
             isApproved: false,
             approvalEmailSent: false,

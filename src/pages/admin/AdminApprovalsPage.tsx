@@ -711,15 +711,21 @@ export const AdminApprovalsPage: React.FC = () => {
                   <div>
                     <div className="text-[10px] text-slate-400 font-medium">Current Status</div>
                     <div>
-                      {selectedFacultyApp.status === "approved" ? (
+                      {selectedFacultyApp.status === "APPROVED" || selectedFacultyApp.status === "approved" ? (
                         <Badge variant="emerald" className="text-[10px]">APPROVED</Badge>
-                      ) : selectedFacultyApp.status === "rejected" ? (
+                      ) : selectedFacultyApp.status === "REJECTED" || selectedFacultyApp.status === "rejected" ? (
                         <Badge variant="destructive" className="text-[10px]">REJECTED</Badge>
                       ) : (
                         <Badge variant="amber" className="text-[10px]">PENDING APPROVAL</Badge>
                       )}
                     </div>
                   </div>
+                  {(selectedFacultyApp.status === "APPROVED" || selectedFacultyApp.status === "approved") && selectedFacultyApp.approvedAt && (
+                    <div className="col-span-2 text-emerald-800 bg-emerald-50 p-2.5 rounded-xl">
+                      <div className="text-[10px] font-bold uppercase">Approved On:</div>
+                      <div>{format(selectedFacultyApp.approvedAt, "PPpp")}{selectedFacultyApp.approvedBy ? ` by ${selectedFacultyApp.approvedBy}` : ""}</div>
+                    </div>
+                  )}
                   {selectedFacultyApp.rejectionReason && (
                     <div className="col-span-2 text-rose-700 bg-rose-50 p-2.5 rounded-xl">
                       <div className="text-[10px] font-bold uppercase">Rejection Reason:</div>
@@ -731,7 +737,7 @@ export const AdminApprovalsPage: React.FC = () => {
             </div>
           )}
 
-          <DialogFooter className="pt-3 flex items-center justify-end gap-2">
+          <DialogFooter className="pt-3 flex flex-wrap items-center justify-end gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -740,7 +746,10 @@ export const AdminApprovalsPage: React.FC = () => {
             >
               Close Dossier
             </Button>
-            {selectedFacultyApp && selectedFacultyApp.status === "pending" && (
+            {selectedFacultyApp &&
+              (selectedFacultyApp.status === "PENDING_APPROVAL" ||
+                selectedFacultyApp.status === "PENDING" ||
+                selectedFacultyApp.status === "pending") && (
               <>
                 <Button
                   size="sm"
@@ -749,9 +758,9 @@ export const AdminApprovalsPage: React.FC = () => {
                     setViewDetailsOpen(false);
                     handleOpenRejectModal(selectedFacultyApp);
                   }}
-                  className="rounded-xl text-xs font-bold"
+                  className="rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white"
                 >
-                  Reject
+                  Reject Application
                 </Button>
                 <Button
                   size="sm"
@@ -761,7 +770,7 @@ export const AdminApprovalsPage: React.FC = () => {
                   }}
                   className="rounded-xl text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
                 >
-                  Approve Faculty
+                  Approve Faculty Access
                 </Button>
               </>
             )}
@@ -779,10 +788,12 @@ export const AdminApprovalsPage: React.FC = () => {
               <CheckCircle2 className="w-5 h-5" />
             </div>
             <DialogTitle className="text-lg font-bold text-slate-900">
-              Approve this faculty account?
+              Approve Faculty Access?
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500 leading-relaxed">
-              Once approved, this faculty member will be able to sign in to the Apollo University Event Hub.
+              {selectedFacultyApp
+                ? `Are you sure you want to grant faculty portal access to ${selectedFacultyApp.fullName}?`
+                : "Are you sure you want to grant faculty portal access?"}
             </DialogDescription>
           </DialogHeader>
 
@@ -816,7 +827,7 @@ export const AdminApprovalsPage: React.FC = () => {
                   <span>Activating Account...</span>
                 </>
               ) : (
-                <span>Approve Faculty</span>
+                <span>Approve Access</span>
               )}
             </Button>
           </DialogFooter>
@@ -833,10 +844,12 @@ export const AdminApprovalsPage: React.FC = () => {
               <XCircle className="w-5 h-5" />
             </div>
             <DialogTitle className="text-lg font-bold text-slate-900">
-              Reject Faculty Application
+              Reject Faculty Application?
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500 leading-relaxed">
-              Provide an optional reason for denying faculty account access.
+              {selectedFacultyApp
+                ? `Are you sure you want to reject the faculty application for ${selectedFacultyApp.fullName}?`
+                : "Are you sure you want to reject this faculty application?"}
             </DialogDescription>
           </DialogHeader>
 
@@ -874,7 +887,7 @@ export const AdminApprovalsPage: React.FC = () => {
               variant="destructive"
               onClick={handleConfirmRejectFaculty}
               disabled={rejectFacultyMutation.isPending}
-              className="rounded-xl text-xs font-bold"
+              className="rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white"
             >
               {rejectFacultyMutation.isPending ? (
                 <>
@@ -882,7 +895,7 @@ export const AdminApprovalsPage: React.FC = () => {
                   <span>Rejecting...</span>
                 </>
               ) : (
-                <span>Confirm Rejection</span>
+                <span>Reject Application</span>
               )}
             </Button>
           </DialogFooter>

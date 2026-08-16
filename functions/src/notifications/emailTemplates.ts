@@ -131,13 +131,14 @@ export function renderEmailTemplate(
 
     case "access-approved":
       return {
-        subject: "Apollo University Faculty Access Approved",
+        subject: "Your Apollo University Faculty Access Has Been Approved",
         html: wrapEmailHtml({
           title: "Faculty Access Approved",
-          bodyHtml: `<p>Dear Faculty Member,</p>
-          <p>Your faculty access for the Apollo University Event Hub has been approved by the administrator.</p>
-          <p>Your account is now active and you can sign in to the Faculty Event Hub.</p>
-          <p style="margin-top: 16px;">Use your registered email address and password to sign in.</p>`,
+          bodyHtml: `<p>Dear ${data.recipientName || "Faculty Member"},</p>
+          <p>Your faculty access request for the <strong>Apollo University Event Hub</strong> has been approved by the administrator.</p>
+          <p>You can now sign in to the Faculty Portal.</p>
+          <p style="margin-top: 16px;"><strong>Your registered email:</strong> ${data.recipientEmail || ""}</p>
+          <p>Please use the password you created during registration.</p>`,
           ctaText: "Login here",
           ctaLink: `https://theapolloeventhub.web.app/login`,
         }),

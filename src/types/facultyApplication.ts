@@ -11,11 +11,15 @@ export interface FacultyApplication {
   designation: string;
   alternateEmail?: string;
   role: "faculty";
-  status: "pending" | "approved" | "rejected";
+  status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "pending" | "approved" | "rejected" | string;
   approvalStatus?: "pending" | "approved" | "rejected" | string;
   isApproved?: boolean;
+  approvalEmailSent?: boolean;
+  approvalEmailSentAt?: Date | null;
   submittedAt: Date;
   reviewedAt?: Date | null;
   reviewedBy?: string | null;
+  approvedAt?: Date | null;
+  approvedBy?: string | null;
   rejectionReason?: string | null;
 }

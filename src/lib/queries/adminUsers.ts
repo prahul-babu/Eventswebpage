@@ -6,6 +6,7 @@ import {
   getDoc,
   setDoc,
   deleteDoc,
+  writeBatch,
   query,
   where,
   orderBy,
@@ -717,7 +718,7 @@ export function usePendingFacultyApplications() {
   });
 }
 
-export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "approved" | "rejected") {
+export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "approved" | "rejected" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED") {
   return useQuery<FacultyApplication[]>({
     queryKey: ["admin", "faculty-applications", statusFilter],
     queryFn: async () => {
@@ -727,23 +728,37 @@ export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "ap
 
         let list: FacultyApplication[] = snap.docs.map((d) => {
           const data = d.data();
+          const rawStatus = String(data.status || "PENDING_APPROVAL").toUpperCase();
+          const normalizedStatus =
+            rawStatus === "APPROVED"
+              ? "APPROVED"
+              : rawStatus === "REJECTED"
+              ? "REJECTED"
+              : "PENDING_APPROVAL";
+
           return {
             id: d.id,
             applicationId: data.applicationId || d.id,
             uid: data.uid,
             fullName: data.fullName || data.displayName || data.name || "Faculty Applicant",
             officialEmail: data.officialEmail || data.email || "",
-            mobileNumber: data.mobileNumber || data.phoneNumber || data.phone || "",
+            mobileNumber: data.mobileNumber || data.phoneNumber || data.phone || data.mobile || "",
             employeeId: data.employeeId || "",
             department: data.department || "School of Technology",
             school: data.school || "School of Technology",
             designation: data.designation || "Assistant Professor",
             alternateEmail: data.alternateEmail || "",
             role: "faculty",
-            status: data.status || "pending",
-            submittedAt: data.submittedAt ? safeToDate(data.submittedAt) : new Date(),
-            reviewedAt: data.reviewedAt ? safeToDate(data.reviewedAt) : null,
-            reviewedBy: data.reviewedBy || null,
+            status: normalizedStatus,
+            approvalStatus: data.approvalStatus || (normalizedStatus === "APPROVED" ? "approved" : normalizedStatus === "REJECTED" ? "rejected" : "pending"),
+            isApproved: normalizedStatus === "APPROVED",
+            approvalEmailSent: data.approvalEmailSent ?? (normalizedStatus === "APPROVED"),
+            approvalEmailSentAt: data.approvalEmailSentAt ? safeToDate(data.approvalEmailSentAt) : null,
+            submittedAt: data.submittedAt ? safeToDate(data.submittedAt) : data.createdAt ? safeToDate(data.createdAt) : new Date(),
+            reviewedAt: data.reviewedAt ? safeToDate(data.reviewedAt) : data.approvedAt ? safeToDate(data.approvedAt) : null,
+            reviewedBy: data.reviewedBy || data.approvedBy || null,
+            approvedAt: data.approvedAt ? safeToDate(data.approvedAt) : null,
+            approvedBy: data.approvedBy || null,
             rejectionReason: data.rejectionReason || null,
           };
         });
@@ -755,24 +770,36 @@ export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "ap
           const u = d.data();
           const email = (u.email || "").toLowerCase().trim();
           if (email && !existingEmails.has(email)) {
-            const st = u.status === "ACTIVE" ? "approved" : u.status === "REJECTED" ? "rejected" : "pending";
+            const rawStatus = String(u.status || "PENDING_APPROVAL").toUpperCase();
+            const normalizedStatus =
+              rawStatus === "ACTIVE" || rawStatus === "APPROVED"
+                ? "APPROVED"
+                : rawStatus === "REJECTED"
+                ? "REJECTED"
+                : "PENDING_APPROVAL";
+
             list.push({
               id: d.id,
               applicationId: `fapp_user_${d.id}`,
               uid: d.id,
               fullName: u.displayName || u.name || "Faculty Member",
               officialEmail: u.email,
-              mobileNumber: u.phoneNumber || u.phone || "",
+              mobileNumber: u.phoneNumber || u.phone || u.mobile || "",
               employeeId: u.employeeId || "",
               department: u.department || "School of Technology",
               school: (u as any).school || "School of Technology",
               designation: u.designation || "Assistant Professor",
               alternateEmail: (u as any).alternateEmail || "",
               role: "faculty",
-              status: st as any,
+              status: normalizedStatus,
+              approvalStatus: normalizedStatus === "APPROVED" ? "approved" : normalizedStatus === "REJECTED" ? "rejected" : "pending",
+              isApproved: normalizedStatus === "APPROVED",
+              approvalEmailSent: normalizedStatus === "APPROVED",
               submittedAt: u.createdAt ? safeToDate(u.createdAt) : new Date(),
               reviewedAt: (u as any).approvedAt ? safeToDate((u as any).approvedAt) : null,
               reviewedBy: (u as any).approvedBy || null,
+              approvedAt: (u as any).approvedAt ? safeToDate((u as any).approvedAt) : null,
+              approvedBy: (u as any).approvedBy || null,
               rejectionReason: (u as any).rejectionReason || null,
             });
             existingEmails.add(email);
@@ -780,7 +807,19 @@ export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "ap
         });
 
         if (statusFilter && statusFilter !== "ALL") {
-          list = list.filter((a) => a.status === statusFilter);
+          const filterUpper = String(statusFilter).toUpperCase();
+          list = list.filter((a) => {
+            if (filterUpper === "PENDING" || filterUpper === "PENDING_APPROVAL") {
+              return a.status === "PENDING_APPROVAL" || a.status === "pending";
+            }
+            if (filterUpper === "APPROVED") {
+              return a.status === "APPROVED" || a.status === "approved";
+            }
+            if (filterUpper === "REJECTED") {
+              return a.status === "REJECTED" || a.status === "rejected";
+            }
+            return a.status === statusFilter;
+          });
         }
 
         return list.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
@@ -805,25 +844,13 @@ export function useApproveFacultyApplication() {
       const adminUid = auth.currentUser?.uid || "admin";
       const appRef = doc(db, "facultyApplications", applicationId);
       const appSnap = await getDoc(appRef);
-      const appData = appSnap.exists() ? appSnap.data() : null;
+      if (!appSnap.exists()) {
+        throw new Error("Faculty application document not found.");
+      }
+      const appData = appSnap.data();
 
-      // 1. Update application status in facultyApplications/{applicationId}
-      await setDoc(
-        appRef,
-        {
-          status: "APPROVED",
-          approvalStatus: "approved",
-          isApproved: true,
-          approvedAt: new Date(),
-          approvedBy: adminUid,
-          reviewedAt: new Date(),
-          reviewedBy: adminUid,
-        },
-        { merge: true }
-      );
-
-      // 2. Resolve target UID & update user document in users/{uid}
-      let targetUid = uid || appData?.uid;
+      // 1. Resolve target UID
+      let targetUid = uid || appData.uid;
       if (!targetUid && email) {
         const usersSnap = await getDocs(query(collection(db, "users"), where("email", "==", email.toLowerCase().trim())));
         if (!usersSnap.empty) {
@@ -831,60 +858,86 @@ export function useApproveFacultyApplication() {
         }
       }
 
-      if (targetUid) {
-        const userRef = doc(db, "users", targetUid);
-        await setDoc(
-          userRef,
-          {
-            uid: targetUid,
-            email: email || appData?.officialEmail || appData?.email,
-            displayName: fullName || appData?.fullName || "Faculty Member",
-            role: "faculty",
-            status: "ACTIVE",
-            accountStatus: "active",
-            approvalStatus: "approved",
-            isApproved: true,
-            approvedAt: new Date(),
-            approvedBy: adminUid,
-            department: appData?.department || "School of Technology",
-            school: appData?.school || "School of Technology",
-            designation: appData?.designation || "Assistant Professor",
-            employeeId: appData?.employeeId || "",
-            updatedAt: new Date(),
-          },
-          { merge: true }
-        );
+      if (!targetUid) {
+        throw new Error("Could not resolve authenticated Firebase UID for this faculty member.");
       }
+
+      const userRef = doc(db, "users", targetUid);
+      const now = new Date();
+
+      // 2. Perform atomic batch update for both facultyApplications and users/{uid}
+      const batch = writeBatch(db);
+
+      batch.set(
+        appRef,
+        {
+          status: "APPROVED",
+          approvalStatus: "approved",
+          isApproved: true,
+          approvedAt: now,
+          approvedBy: adminUid,
+          reviewedAt: now,
+          reviewedBy: adminUid,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      batch.set(
+        userRef,
+        {
+          uid: targetUid,
+          email: email || appData.officialEmail || appData.email,
+          displayName: fullName || appData.fullName || "Faculty Member",
+          role: "faculty",
+          status: "ACTIVE",
+          accountStatus: "active",
+          approvalStatus: "approved",
+          isApproved: true,
+          approvedAt: now,
+          approvedBy: adminUid,
+          department: appData.department || "School of Technology",
+          school: appData.school || "School of Technology",
+          designation: appData.designation || "Assistant Professor",
+          employeeId: appData.employeeId || "",
+          onboardingCompleted: true,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      await batch.commit();
 
       // 3. Queue Approval Email with Duplication Protection
       let emailSent = false;
-      if (!appData?.approvalEmailSent) {
+      if (!appData.approvalEmailSent) {
         try {
-          const facultyName = fullName || appData?.fullName || "Faculty Member";
-          const facultyEmail = email || appData?.officialEmail || appData?.email;
+          const facultyName = fullName || appData.fullName || "Faculty Member";
+          const facultyEmail = email || appData.officialEmail || appData.email;
 
           // Universal mail queue for server-side delivery
           const mailDocRef = doc(collection(db, "mail"));
           await setDoc(mailDocRef, {
             to: facultyEmail,
             message: {
-              subject: "Apollo University Faculty Access Approved",
-              text: `Dear ${facultyName},\n\nYour faculty access for the Apollo University Event Hub has been approved by the administrator.\n\nYour account is now active and you can sign in to the Faculty Event Hub.\n\nLogin here:\nhttps://theapolloeventhub.web.app/login\n\nUse your registered email address and password to sign in.\n\nRegards,\nThe Apollo University\nFaculty Event Hub`,
+              subject: "Your Apollo University Faculty Access Has Been Approved",
+              text: `Dear ${facultyName},\n\nYour faculty access request for the Apollo University Event Hub has been approved by the administrator.\n\nYou can now sign in to the Faculty Portal.\n\nLogin here:\n\nhttps://theapolloeventhub.web.app/login\n\nYour registered email:\n${facultyEmail}\n\nPlease use the password you created during registration.\n\nRegards,\nThe Apollo University\nB.Tech Event Hub`,
               html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
                 <div style="background-color: #004D61; padding: 20px; text-align: center; border-radius: 8px; margin-bottom: 24px;">
                   <h2 style="color: #ffffff; margin: 0; font-size: 20px;">The Apollo University Event Hub</h2>
                 </div>
                 <p style="font-size: 15px; color: #1e293b;">Dear <strong>${facultyName}</strong>,</p>
-                <p style="font-size: 14px; color: #334155; line-height: 1.6;">Your faculty access for the <strong>Apollo University Event Hub</strong> has been approved by the administrator.</p>
-                <p style="font-size: 14px; color: #334155; line-height: 1.6;">Your account is now active and you can sign in to the Faculty Event Hub.</p>
+                <p style="font-size: 14px; color: #334155; line-height: 1.6;">Your faculty access request for the <strong>Apollo University Event Hub</strong> has been approved by the administrator.</p>
+                <p style="font-size: 14px; color: #334155; line-height: 1.6;">You can now sign in to the Faculty Portal.</p>
                 <div style="margin: 28px 0; text-align: center;">
                   <a href="https://theapolloeventhub.web.app/login" style="background-color: #007A99; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Login here &rarr;</a>
                 </div>
-                <p style="font-size: 13px; color: #475569;">Use your registered email address (<strong>${facultyEmail}</strong>) and password to sign in.</p>
+                <p style="font-size: 13px; color: #475569;">Your registered email:<br><strong>${facultyEmail}</strong></p>
+                <p style="font-size: 13px; color: #475569;">Please use the password you created during registration.</p>
                 <p style="font-size: 13px; color: #64748b; margin-top: 32px; border-top: 1px solid #f1f5f9; padding-top: 16px;">
                   Regards,<br>
                   <strong>The Apollo University</strong><br>
-                  Faculty Event Hub
+                  B.Tech Event Hub
                 </p>
               </div>`,
             },
@@ -894,11 +947,11 @@ export function useApproveFacultyApplication() {
           // In-app notification queue
           const notificationDocRef = doc(collection(db, "notifications"));
           await setDoc(notificationDocRef, {
-            recipientUid: targetUid || "",
+            recipientUid: targetUid,
             recipientEmail: facultyEmail,
             type: "ACCESS_APPROVED",
-            title: "Apollo University Faculty Access Approved",
-            message: `Dear ${facultyName},\n\nYour faculty access for the Apollo University Event Hub has been approved by the administrator.\n\nYour account is now active and you can sign in to the Faculty Event Hub.\n\nLogin here: https://theapolloeventhub.web.app/login\n\nUse your registered email address and password to sign in.\n\nRegards,\nThe Apollo University\nFaculty Event Hub`,
+            title: "Your Apollo University Faculty Access Has Been Approved",
+            message: `Dear ${facultyName},\n\nYour faculty access request for the Apollo University Event Hub has been approved by the administrator.\n\nYou can now sign in to the Faculty Portal.\n\nLogin here: https://theapolloeventhub.web.app/login`,
             read: false,
             priority: "HIGH",
             createdAt: new Date(),
@@ -934,9 +987,9 @@ export function useApproveFacultyApplication() {
         details: {
           applicationId,
           officialEmail: email,
-          fullName: fullName || appData?.fullName,
-          employeeId: appData?.employeeId,
-          department: appData?.department,
+          fullName: fullName || appData.fullName,
+          employeeId: appData.employeeId,
+          department: appData.department,
           emailSent,
         },
       });
@@ -950,11 +1003,11 @@ export function useApproveFacultyApplication() {
       queryClient.invalidateQueries({ queryKey: ["admin", "dashboard-metrics"] });
 
       if (data.emailSent) {
-        toast.success("Faculty approved successfully. An approval email has been sent.", {
+        toast.success("Faculty access approved successfully. An approval email has been sent.", {
           description: `Approval confirmed for ${data.email}. Faculty member can now sign in.`,
         });
       } else {
-        toast.info("Faculty approved successfully, but the approval email could not be sent.", {
+        toast.info("Faculty access approved successfully, but the approval email could not be sent.", {
           description: `Account for ${data.email} is active, but email notification failed.`,
         });
       }
@@ -977,22 +1030,13 @@ export function useRejectFacultyApplication() {
       const adminUid = auth.currentUser?.uid || "admin";
       const appRef = doc(db, "facultyApplications", applicationId);
       const appSnap = await getDoc(appRef);
-      const appData = appSnap.exists() ? appSnap.data() : null;
+      if (!appSnap.exists()) {
+        throw new Error("Faculty application document not found.");
+      }
+      const appData = appSnap.data();
 
-      // 1. Update application status
-      await setDoc(
-        appRef,
-        {
-          status: "rejected",
-          rejectionReason: reason || "Did not meet institutional criteria",
-          reviewedAt: new Date(),
-          reviewedBy: adminUid,
-        },
-        { merge: true }
-      );
-
-      // 2. Resolve target UID & update user document
-      let targetUid = uid || appData?.uid;
+      // 1. Resolve target UID
+      let targetUid = uid || appData.uid;
       if (!targetUid && email) {
         const usersSnap = await getDocs(query(collection(db, "users"), where("email", "==", email.toLowerCase().trim())));
         if (!usersSnap.empty) {
@@ -1000,21 +1044,44 @@ export function useRejectFacultyApplication() {
         }
       }
 
+      const now = new Date();
+      const batch = writeBatch(db);
+
+      // 2. Update application status
+      batch.set(
+        appRef,
+        {
+          status: "REJECTED",
+          approvalStatus: "rejected",
+          isApproved: false,
+          rejectionReason: reason || "Did not meet institutional criteria",
+          reviewedAt: now,
+          reviewedBy: adminUid,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      // 3. Update user document
       if (targetUid) {
         const userRef = doc(db, "users", targetUid);
-        await setDoc(
+        batch.set(
           userRef,
           {
             status: "REJECTED",
             accountStatus: "rejected",
+            approvalStatus: "rejected",
+            isApproved: false,
             rejectionReason: reason || "Did not meet institutional criteria",
-            updatedAt: new Date(),
+            updatedAt: now,
           },
           { merge: true }
         );
       }
 
-      // 3. Log immutable audit trail
+      await batch.commit();
+
+      // 4. Log immutable audit trail
       logAuditEvent({
         action: "FACULTY_REJECTED",
         targetType: "USER",
@@ -1025,7 +1092,10 @@ export function useRejectFacultyApplication() {
         details: {
           applicationId,
           officialEmail: email,
-          rejectionReason: reason,
+          fullName: appData.fullName,
+          employeeId: appData.employeeId,
+          department: appData.department,
+          reason,
         },
       });
 
@@ -1037,12 +1107,12 @@ export function useRejectFacultyApplication() {
       queryClient.invalidateQueries({ queryKey: ["admin", "users-directory"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "dashboard-metrics"] });
 
-      toast.info("Faculty Application Rejected", {
-        description: `Application for ${data.email} marked as rejected.`,
+      toast.success("Faculty application rejected.", {
+        description: `Application for ${data.email} has been marked as rejected.`,
       });
     },
     onError: (err) => {
-      toast.error("Rejection Failed", { description: err.message || "Unable to reject application." });
+      toast.error("Rejection Failed", { description: err.message || "Unable to reject faculty application." });
     },
   });
 }

@@ -50,7 +50,7 @@ export const RequireAuth: React.FC<RequireAuthProps> = ({ children, allowedRoles
   // - faculty + PENDING (or unapproved) → Faculty Pending Approval (/pending)
   if (
     effectiveUserRole === "faculty" &&
-    (effectiveStatus === "PENDING" || profile?.isApproved === false || profile?.approvalStatus === "pending")
+    (effectiveStatus === "PENDING" || effectiveStatus === "PENDING_APPROVAL" || profile?.isApproved === false || profile?.approvalStatus === "pending")
   ) {
     if (location.pathname !== "/pending") {
       console.log("[ROUTE 13] Faculty pending redirect to /pending");
