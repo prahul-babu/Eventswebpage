@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Sparkles, CalendarCheck, ShieldCheck, GraduationCap, LogOut } from "lucide-react";
+import { Sparkles, GraduationCap, LogOut } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth-context";
+import { AppFooter } from "@/components/layout/AppFooter";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -146,23 +147,10 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
       {/* Main Content Area */}
       <main className="flex-1">{children}</main>
 
-      {/* Institutional Academic Footer */}
-      <footer className="border-t bg-white py-8 mt-12 text-slate-500 text-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <CalendarCheck className="h-4 w-4 text-indigo-600" />
-            <span>&copy; {new Date().getFullYear()} The Apollo University. All rights reserved.</span>
-          </div>
-          <div className="flex items-center gap-4 text-slate-400">
-            <span className="flex items-center gap-1">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
-              Microsoft Entra ID Protected
-            </span>
-            <span>&bull;</span>
-            <span>Module 2 Authentication</span>
-          </div>
-        </div>
-      </footer>
+      {/* Shared Global Footer */}
+      <AppFooter />
     </div>
   );
 };
+
+export default AppShell;

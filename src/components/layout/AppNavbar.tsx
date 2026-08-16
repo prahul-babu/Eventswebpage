@@ -39,9 +39,8 @@ export const AppNavbar: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-cyan-200 hidden md:inline">Admissions Helpline: +91 7995574330</span>
             {role && (
-              <span className="bg-[#F5A623] text-slate-900 text-[10px] font-bold py-0.5 px-2 rounded-full uppercase tracking-wider">
+              <span className="bg-[#F5A623] text-slate-900 text-[10px] font-bold py-0.5 px-2.5 rounded-full uppercase tracking-wider shadow-2xs">
                 {role} Portal
               </span>
             )}
@@ -190,4 +189,5 @@ export const AppNavbar: React.FC = () => {
     </>
   );
 };
+
 export default AppNavbar;
