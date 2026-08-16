@@ -371,7 +371,7 @@ export const AdminApprovalsPage: React.FC = () => {
                                 size="sm"
                                 className="h-8 rounded-xl text-xs bg-[#004D61] hover:bg-[#003847] text-white font-bold shadow-xs"
                               >
-                                Review Dossier
+                                Review Proposal
                               </Button>
                             </Link>
                           </td>
@@ -636,10 +636,10 @@ export const AdminApprovalsPage: React.FC = () => {
               <UserIcon className="w-5 h-5" />
             </div>
             <DialogTitle className="text-xl font-bold text-slate-900">
-              Faculty Application Dossier
+              Faculty Application Details
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500">
-              Verify institutional credentials and identity before granting Faculty Portal access.
+              Review faculty information before granting Faculty Portal access.
             </DialogDescription>
           </DialogHeader>
 
@@ -716,7 +716,7 @@ export const AdminApprovalsPage: React.FC = () => {
                       ) : selectedFacultyApp.status === "REJECTED" || selectedFacultyApp.status === "rejected" ? (
                         <Badge variant="destructive" className="text-[10px]">REJECTED</Badge>
                       ) : (
-                        <Badge variant="amber" className="text-[10px]">PENDING APPROVAL</Badge>
+                        <Badge variant="amber" className="text-[10px]">PENDING</Badge>
                       )}
                     </div>
                   </div>
@@ -744,7 +744,7 @@ export const AdminApprovalsPage: React.FC = () => {
               onClick={() => setViewDetailsOpen(false)}
               className="rounded-xl text-xs"
             >
-              Close Dossier
+              Close
             </Button>
             {selectedFacultyApp &&
               (selectedFacultyApp.status === "PENDING_APPROVAL" ||

@@ -650,61 +650,44 @@ export function usePendingFacultyApplications() {
     queryFn: async () => {
       try {
         const appsRef = collection(db, "facultyApplications");
-        const q = query(appsRef, where("status", "==", "pending"));
-        const snap = await getDocs(q);
+        const snap = await getDocs(appsRef);
 
-        const list: FacultyApplication[] = snap.docs.map((d) => {
+        const list: FacultyApplication[] = [];
+        snap.docs.forEach((d) => {
           const data = d.data();
-          return {
-            id: d.id,
-            applicationId: data.applicationId || d.id,
-            uid: data.uid,
-            fullName: data.fullName || data.displayName || data.name || "Faculty Applicant",
-            officialEmail: data.officialEmail || data.email || "",
-            mobileNumber: data.mobileNumber || data.phoneNumber || data.phone || "",
-            employeeId: data.employeeId || "",
-            department: data.department || "School of Technology",
-            school: data.school || "School of Technology",
-            designation: data.designation || "Assistant Professor",
-            alternateEmail: data.alternateEmail || "",
-            role: "faculty",
-            status: data.status || "pending",
-            submittedAt: data.submittedAt ? safeToDate(data.submittedAt) : new Date(),
-            reviewedAt: data.reviewedAt ? safeToDate(data.reviewedAt) : null,
-            reviewedBy: data.reviewedBy || null,
-            rejectionReason: data.rejectionReason || null,
-          };
-        });
+          const rawStatus = String(data.status || "PENDING").toUpperCase();
+          const isPending =
+            rawStatus === "PENDING" ||
+            rawStatus === "PENDING_APPROVAL" ||
+            data.status === "pending" ||
+            data.status === "PENDING_APPROVAL";
 
-        const existingEmails = new Set(list.map((a) => a.officialEmail.toLowerCase().trim()));
-        const usersSnap = await getDocs(
-          query(collection(db, "users"), where("role", "==", "faculty"), where("status", "==", "PENDING"))
-        );
-
-        usersSnap.docs.forEach((d) => {
-          const u = d.data();
-          const email = (u.email || "").toLowerCase().trim();
-          if (email && !existingEmails.has(email)) {
+          if (isPending) {
             list.push({
               id: d.id,
-              applicationId: `fapp_user_${d.id}`,
-              uid: d.id,
-              fullName: u.displayName || u.name || "Faculty Member",
-              officialEmail: u.email,
-              mobileNumber: u.phoneNumber || u.phone || "",
-              employeeId: u.employeeId || "",
-              department: u.department || "School of Technology",
-              school: (u as any).school || "School of Technology",
-              designation: u.designation || "Assistant Professor",
-              alternateEmail: (u as any).alternateEmail || "",
+              applicationId: data.applicationId || d.id,
+              uid: data.uid,
+              fullName: data.fullName || data.displayName || data.name || "Faculty Applicant",
+              officialEmail: data.officialEmail || data.email || "",
+              mobileNumber: data.mobileNumber || data.phoneNumber || data.phone || data.mobile || "",
+              employeeId: data.employeeId || "",
+              department: data.department || "School of Technology",
+              school: data.school || "School of Technology",
+              designation: data.designation || "Assistant Professor",
+              alternateEmail: data.alternateEmail || "",
               role: "faculty",
-              status: "pending",
-              submittedAt: u.createdAt ? safeToDate(u.createdAt) : new Date(),
+              status: "PENDING",
+              approvalStatus: "pending",
+              isApproved: false,
+              approvalEmailSent: data.approvalEmailSent ?? false,
+              approvalEmailSentAt: data.approvalEmailSentAt ? safeToDate(data.approvalEmailSentAt) : null,
+              submittedAt: data.submittedAt ? safeToDate(data.submittedAt) : data.createdAt ? safeToDate(data.createdAt) : new Date(),
               reviewedAt: null,
               reviewedBy: null,
+              approvedAt: null,
+              approvedBy: null,
               rejectionReason: null,
             });
-            existingEmails.add(email);
           }
         });
 
@@ -714,11 +697,11 @@ export function usePendingFacultyApplications() {
         return [];
       }
     },
-    staleTime: 1000 * 15,
+    staleTime: 1000 * 10,
   });
 }
 
-export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "approved" | "rejected" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED") {
+export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "approved" | "rejected" | "PENDING" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED") {
   return useQuery<FacultyApplication[]>({
     queryKey: ["admin", "faculty-applications", statusFilter],
     queryFn: async () => {
@@ -728,13 +711,13 @@ export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "ap
 
         let list: FacultyApplication[] = snap.docs.map((d) => {
           const data = d.data();
-          const rawStatus = String(data.status || "PENDING_APPROVAL").toUpperCase();
+          const rawStatus = String(data.status || "PENDING").toUpperCase();
           const normalizedStatus =
             rawStatus === "APPROVED"
               ? "APPROVED"
               : rawStatus === "REJECTED"
               ? "REJECTED"
-              : "PENDING_APPROVAL";
+              : "PENDING";
 
           return {
             id: d.id,
@@ -748,7 +731,7 @@ export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "ap
             school: data.school || "School of Technology",
             designation: data.designation || "Assistant Professor",
             alternateEmail: data.alternateEmail || "",
-            role: "faculty",
+            role: "faculty" as const,
             status: normalizedStatus,
             approvalStatus: data.approvalStatus || (normalizedStatus === "APPROVED" ? "approved" : normalizedStatus === "REJECTED" ? "rejected" : "pending"),
             isApproved: normalizedStatus === "APPROVED",
@@ -763,54 +746,11 @@ export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "ap
           };
         });
 
-        const existingEmails = new Set(list.map((a) => a.officialEmail.toLowerCase().trim()));
-        const usersSnap = await getDocs(query(collection(db, "users"), where("role", "==", "faculty")));
-
-        usersSnap.docs.forEach((d) => {
-          const u = d.data();
-          const email = (u.email || "").toLowerCase().trim();
-          if (email && !existingEmails.has(email)) {
-            const rawStatus = String(u.status || "PENDING_APPROVAL").toUpperCase();
-            const normalizedStatus =
-              rawStatus === "ACTIVE" || rawStatus === "APPROVED"
-                ? "APPROVED"
-                : rawStatus === "REJECTED"
-                ? "REJECTED"
-                : "PENDING_APPROVAL";
-
-            list.push({
-              id: d.id,
-              applicationId: `fapp_user_${d.id}`,
-              uid: d.id,
-              fullName: u.displayName || u.name || "Faculty Member",
-              officialEmail: u.email,
-              mobileNumber: u.phoneNumber || u.phone || u.mobile || "",
-              employeeId: u.employeeId || "",
-              department: u.department || "School of Technology",
-              school: (u as any).school || "School of Technology",
-              designation: u.designation || "Assistant Professor",
-              alternateEmail: (u as any).alternateEmail || "",
-              role: "faculty",
-              status: normalizedStatus,
-              approvalStatus: normalizedStatus === "APPROVED" ? "approved" : normalizedStatus === "REJECTED" ? "rejected" : "pending",
-              isApproved: normalizedStatus === "APPROVED",
-              approvalEmailSent: normalizedStatus === "APPROVED",
-              submittedAt: u.createdAt ? safeToDate(u.createdAt) : new Date(),
-              reviewedAt: (u as any).approvedAt ? safeToDate((u as any).approvedAt) : null,
-              reviewedBy: (u as any).approvedBy || null,
-              approvedAt: (u as any).approvedAt ? safeToDate((u as any).approvedAt) : null,
-              approvedBy: (u as any).approvedBy || null,
-              rejectionReason: (u as any).rejectionReason || null,
-            });
-            existingEmails.add(email);
-          }
-        });
-
         if (statusFilter && statusFilter !== "ALL") {
           const filterUpper = String(statusFilter).toUpperCase();
           list = list.filter((a) => {
             if (filterUpper === "PENDING" || filterUpper === "PENDING_APPROVAL") {
-              return a.status === "PENDING_APPROVAL" || a.status === "pending";
+              return a.status === "PENDING" || a.status === "PENDING_APPROVAL" || a.status === "pending";
             }
             if (filterUpper === "APPROVED") {
               return a.status === "APPROVED" || a.status === "approved";
@@ -828,7 +768,7 @@ export function useAllFacultyApplications(statusFilter?: "ALL" | "pending" | "ap
         return [];
       }
     },
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 10,
   });
 }
 

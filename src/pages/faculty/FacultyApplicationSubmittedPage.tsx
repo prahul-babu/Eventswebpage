@@ -63,7 +63,7 @@ export const FacultyApplicationSubmittedPage: React.FC = () => {
               </p>
             </div>
 
-            {/* Application Dossier Card */}
+            {/* Application Details Card */}
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3 text-xs">
               <div className="font-bold text-slate-900 flex items-center justify-between pb-2 border-b border-slate-200 text-[11px]">
                 <span className="uppercase tracking-wider text-indigo-700">Submitted Information</span>
