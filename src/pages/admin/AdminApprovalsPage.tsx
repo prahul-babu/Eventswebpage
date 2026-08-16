@@ -20,7 +20,6 @@ import {
 } from "@/lib/queries/admin";
 import {
   useAllFacultyApplications,
-  usePendingFacultyApplications,
   useApproveFacultyApplication,
   useRejectFacultyApplication,
 } from "@/lib/queries/adminUsers";
@@ -59,7 +58,10 @@ export const AdminApprovalsPage: React.FC = () => {
   const { data: rejectedEvents, isLoading: isRejectedLoading } = useRecentlyReviewedEvents("REJECTED");
 
   const { data: facultyApps, isLoading: isFacultyLoading } = useAllFacultyApplications();
-  const { data: pendingFacultyApps } = usePendingFacultyApplications();
+  const pendingFacultyCount = (facultyApps || []).filter((a) => {
+    const s = String(a.status || "").toLowerCase();
+    return s === "pending" || s === "pending_approval";
+  }).length;
 
   const bulkApproveMutation = useBulkApproveEvents();
   const approveFacultyMutation = useApproveFacultyApplication();
@@ -218,7 +220,7 @@ export const AdminApprovalsPage: React.FC = () => {
                 activeTab === "FACULTY_APPLICATIONS" ? "bg-white/20 text-white" : "bg-white text-slate-700"
               }`}
             >
-              {pendingFacultyApps?.length || 0}
+              {pendingFacultyCount}
             </span>
           </button>
 
@@ -463,11 +465,11 @@ export const AdminApprovalsPage: React.FC = () => {
                         </td>
 
                         <td className="p-4 whitespace-nowrap">
-                          {app.status === "approved" ? (
+                          {String(app.status).toLowerCase() === "approved" ? (
                             <Badge variant="emerald" className="text-[10px]">
                               APPROVED
                             </Badge>
-                          ) : app.status === "rejected" ? (
+                          ) : String(app.status).toLowerCase() === "rejected" ? (
                             <Badge variant="destructive" className="text-[10px]">
                               REJECTED
                             </Badge>
@@ -494,7 +496,8 @@ export const AdminApprovalsPage: React.FC = () => {
                               <span>View Details</span>
                             </Button>
 
-                            {app.status === "pending" && (
+                            {(String(app.status).toLowerCase() === "pending" ||
+                              String(app.status).toLowerCase() === "pending_approval") && (
                               <>
                                 <Button
                                   size="sm"
@@ -636,10 +639,10 @@ export const AdminApprovalsPage: React.FC = () => {
               <UserIcon className="w-5 h-5" />
             </div>
             <DialogTitle className="text-xl font-bold text-slate-900">
-              Faculty Application Details
+              Faculty Application
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500">
-              Review faculty information before granting Faculty Portal access.
+              Verify institutional credentials and identity before granting Faculty Portal access.
             </DialogDescription>
           </DialogHeader>
 
@@ -711,12 +714,12 @@ export const AdminApprovalsPage: React.FC = () => {
                   <div>
                     <div className="text-[10px] text-slate-400 font-medium">Current Status</div>
                     <div>
-                      {selectedFacultyApp.status === "APPROVED" || selectedFacultyApp.status === "approved" ? (
+                      {String(selectedFacultyApp.status).toLowerCase() === "approved" ? (
                         <Badge variant="emerald" className="text-[10px]">APPROVED</Badge>
-                      ) : selectedFacultyApp.status === "REJECTED" || selectedFacultyApp.status === "rejected" ? (
+                      ) : String(selectedFacultyApp.status).toLowerCase() === "rejected" ? (
                         <Badge variant="destructive" className="text-[10px]">REJECTED</Badge>
                       ) : (
-                        <Badge variant="amber" className="text-[10px]">PENDING</Badge>
+                        <Badge variant="amber" className="text-[10px]">PENDING APPROVAL</Badge>
                       )}
                     </div>
                   </div>

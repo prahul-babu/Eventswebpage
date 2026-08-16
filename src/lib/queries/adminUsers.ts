@@ -860,24 +860,24 @@ export function useApproveFacultyApplication() {
           await setDoc(mailDocRef, {
             to: facultyEmail,
             message: {
-              subject: "Your Apollo University Faculty Access Has Been Approved",
-              text: `Dear ${facultyName},\n\nYour faculty access request for the Apollo University Event Hub has been approved by the administrator.\n\nYou can now sign in to the Faculty Portal.\n\nLogin here:\n\nhttps://theapolloeventhub.web.app/login\n\nYour registered email:\n${facultyEmail}\n\nPlease use the password you created during registration.\n\nRegards,\nThe Apollo University\nB.Tech Event Hub`,
+              subject: "Faculty Access Approved — Apollo University Event Hub",
+              text: `Dear ${facultyName},\n\nYour faculty access request for the Apollo University Event Hub has been approved by the administrator.\n\nYou can now log in to the Faculty Portal.\n\nLogin here:\n\nhttps://theapolloeventhub.web.app/login\n\nYour registered email:\n${facultyEmail}\n\nIf you did not request this access, please contact the administrator.\n\nRegards,\nApollo University Event Hub\nSchool of Technology`,
               html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
                 <div style="background-color: #004D61; padding: 20px; text-align: center; border-radius: 8px; margin-bottom: 24px;">
                   <h2 style="color: #ffffff; margin: 0; font-size: 20px;">The Apollo University Event Hub</h2>
                 </div>
                 <p style="font-size: 15px; color: #1e293b;">Dear <strong>${facultyName}</strong>,</p>
                 <p style="font-size: 14px; color: #334155; line-height: 1.6;">Your faculty access request for the <strong>Apollo University Event Hub</strong> has been approved by the administrator.</p>
-                <p style="font-size: 14px; color: #334155; line-height: 1.6;">You can now sign in to the Faculty Portal.</p>
+                <p style="font-size: 14px; color: #334155; line-height: 1.6;">You can now log in to the Faculty Portal.</p>
                 <div style="margin: 28px 0; text-align: center;">
                   <a href="https://theapolloeventhub.web.app/login" style="background-color: #007A99; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">Login here &rarr;</a>
                 </div>
                 <p style="font-size: 13px; color: #475569;">Your registered email:<br><strong>${facultyEmail}</strong></p>
-                <p style="font-size: 13px; color: #475569;">Please use the password you created during registration.</p>
+                <p style="font-size: 13px; color: #475569;">If you did not request this access, please contact the administrator.</p>
                 <p style="font-size: 13px; color: #64748b; margin-top: 32px; border-top: 1px solid #f1f5f9; padding-top: 16px;">
                   Regards,<br>
-                  <strong>The Apollo University</strong><br>
-                  B.Tech Event Hub
+                  <strong>Apollo University Event Hub</strong><br>
+                  School of Technology
                 </p>
               </div>`,
             },
@@ -890,8 +890,8 @@ export function useApproveFacultyApplication() {
             recipientUid: targetUid,
             recipientEmail: facultyEmail,
             type: "ACCESS_APPROVED",
-            title: "Your Apollo University Faculty Access Has Been Approved",
-            message: `Dear ${facultyName},\n\nYour faculty access request for the Apollo University Event Hub has been approved by the administrator.\n\nYou can now sign in to the Faculty Portal.\n\nLogin here: https://theapolloeventhub.web.app/login`,
+            title: "Faculty Access Approved — Apollo University Event Hub",
+            message: `Dear ${facultyName},\n\nYour faculty access request for the Apollo University Event Hub has been approved by the administrator.\n\nYou can now log in to the Faculty Portal.\n\nLogin here: https://theapolloeventhub.web.app/login`,
             read: false,
             priority: "HIGH",
             createdAt: new Date(),
