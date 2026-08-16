@@ -297,7 +297,7 @@ export function useCreateRegistration() {
         studentEmail: user.email || userData?.email || "",
         userRollNumber: userData?.rollNumber || "",
         studentRollNumber: userData?.rollNumber || "",
-        userDepartment: userData?.department || "School of Technology",
+        userDepartment: userData?.btechProgramme || userData?.department || "B.Tech. Computer Science and Engineering",
         userPhone: payload.contactPhone || userData?.phoneNumber || "",
         eventTitle: eventData.title || "Campus Event",
         status: (requiresPayment ? "PENDING_PAYMENT" : "CONFIRMED") as RegistrationStatus,

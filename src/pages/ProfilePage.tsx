@@ -599,7 +599,7 @@ export const ProfilePage: React.FC = () => {
                     </div>
 
                     <div className="space-y-1.5 sm:col-span-2">
-                      <Label className="text-xs font-bold text-slate-700">B.Tech Programme / Stream *</Label>
+                      <Label className="text-xs font-bold text-slate-700">B.Tech Programme *</Label>
                       <Select value={btechProgramme} onValueChange={setBtechProgramme}>
                         <SelectTrigger className="h-9 text-xs bg-white rounded-xl">
                           <SelectValue placeholder="Select B.Tech Programme" />
@@ -653,7 +653,7 @@ export const ProfilePage: React.FC = () => {
                     </div>
 
                     <div className="space-y-1.5 sm:col-span-2">
-                      <Label className="text-xs font-bold text-slate-700">B.Tech Department / Programme *</Label>
+                      <Label className="text-xs font-bold text-slate-700">B.Tech Programme *</Label>
                       <Select value={btechProgramme} onValueChange={setBtechProgramme}>
                         <SelectTrigger className="h-9 text-xs bg-white rounded-xl">
                           <SelectValue placeholder="Select B.Tech Programme" />

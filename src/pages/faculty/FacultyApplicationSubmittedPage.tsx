@@ -20,7 +20,7 @@ export const FacultyApplicationSubmittedPage: React.FC = () => {
   const fullName = applicationData.fullName || "Faculty Member";
   const officialEmail = applicationData.officialEmail || "faculty@apollouniversity.edu.in";
   const employeeId = applicationData.employeeId || "—";
-  const department = applicationData.department || "Department of Computer Science & Engineering";
+  const department = applicationData.department || "B.Tech. Computer Science and Engineering";
   const school = applicationData.school || "School of Technology";
   const designation = applicationData.designation || "Assistant Professor";
   const submittedAt = applicationData.submittedAt

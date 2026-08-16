@@ -74,9 +74,9 @@ const profilePageFile = readFileSync(resolve(SRC_DIR, "pages/ProfilePage.tsx"), 
 assert(
   profilePageFile.includes("role === \"student\"") &&
   profilePageFile.includes("Student Roll Number *") &&
-  profilePageFile.includes("B.Tech Programme / Stream *") &&
+  profilePageFile.includes("B.Tech Programme *") &&
   profilePageFile.includes("Year of Study *"),
-  "Student profile includes Roll Number, B.Tech Programme, and Year of Study"
+  "Student profile includes Roll Number, B.Tech Programme *, and Year of Study"
 );
 
 assert(
@@ -94,9 +94,9 @@ console.log("\n[SUITE 3] Faculty Profile Requirements");
 assert(
   profilePageFile.includes("role === \"faculty\"") &&
   profilePageFile.includes("Faculty / Employee ID *") &&
-  profilePageFile.includes("B.Tech Department / Programme *") &&
+  profilePageFile.includes("B.Tech Programme *") &&
   profilePageFile.includes("Designation *"),
-  "Faculty profile includes Faculty ID, B.Tech Department/Programme, and Designation"
+  "Faculty profile includes Faculty ID, B.Tech Programme *, and Designation"
 );
 
 // -----------------------------------------------------------------------------
