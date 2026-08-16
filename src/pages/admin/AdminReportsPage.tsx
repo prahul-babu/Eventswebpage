@@ -4,10 +4,12 @@ import {
   Search,
   Download,
   FileSpreadsheet,
+  FileText,
   Loader2,
 } from "lucide-react";
 import { useAdminAllReports } from "@/lib/queries/reports";
-import { generateEventReportPdf } from "@/lib/pdf/reportPdfGenerator";
+import { downloadEventReportPdf } from "@/lib/pdf/reportPdfGenerator";
+import { downloadEventReportDocx } from "@/lib/docx/reportDocxGenerator";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -123,11 +125,10 @@ export const AdminReportsPage: React.FC = () => {
   const handleBulkExportPdf = () => {
     if (!filteredReports || filteredReports.length === 0) return;
     toast.info("Generating Dossiers", {
-      description: `Exporting ${filteredReports.length} PDF reports with Apollo letterhead.`,
+      description: `Exporting ${Math.min(filteredReports.length, 5)} PDF reports with Apollo letterhead.`,
     });
     filteredReports.slice(0, 5).forEach((r) => {
-      const doc = generateEventReportPdf(r);
-      doc.save(`Apollo_Report_${r.eventId}.pdf`);
+      downloadEventReportPdf(r);
     });
   };
 
@@ -149,93 +150,97 @@ export const AdminReportsPage: React.FC = () => {
   return (
     <div className="space-y-8 pb-16">
       <PageHeader
-        title="Accreditation &amp; Reports Archive"
-        description="Searchable institutional repository of post-event reports mapped to NAAC Criteria, NBA Programme Outcomes, and UN SDGs."
-        badge={{ text: "Institutional Repository", variant: "indigo" }}
+        title="Statutory Accreditation & Post-Event Reports"
+        description="Official post-event outcome repository mapped to NAAC criteria, NBA programme outcomes, and UN SDG goals."
+        badge={{ text: "Accreditation Governance", variant: "amber" }}
         actions={
           <div className="flex items-center gap-2">
             <Button
-              size="sm"
               variant="outline"
-              onClick={handleBulkExportPdf}
-              className="rounded-xl text-xs gap-1.5 h-9 bg-white"
-            >
-              <Download className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Bulk PDF</span>
-            </Button>
-            <Button
               size="sm"
               onClick={handleExportCsv}
-              className="rounded-xl text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 h-9 shadow-xs"
+              className="rounded-xl text-xs gap-1.5 h-9 bg-white shadow-2xs"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Export Accreditation CSV</span>
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Export AQAR CSV</span>
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleBulkExportPdf}
+              className="bg-[#004D61] hover:bg-[#003847] text-white rounded-xl text-xs gap-1.5 h-9 font-bold shadow-xs"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Bulk PDF Dossiers</span>
             </Button>
           </div>
         }
       />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-        {/* Filter Toolbar */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-white p-4 rounded-3xl border border-slate-200 shadow-xs">
-          {/* Search */}
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search title, faculty, dept..."
-              className="h-9 pl-9 text-xs rounded-xl"
-            />
+        {/* Filters Card */}
+        <Card className="p-4 sm:p-6 rounded-3xl border-slate-200 shadow-2xs bg-white space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Input
+                placeholder="Search event, organiser, dept..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 text-xs rounded-xl h-10"
+              />
+            </div>
+
+            {/* Academic Year Filter */}
+            <Select value={academicYearFilter} onValueChange={setAcademicYearFilter}>
+              <SelectTrigger className="text-xs rounded-xl h-10">
+                <SelectValue placeholder="Academic Year" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Academic Years</SelectItem>
+                <SelectItem value="2025-26">AY 2025-26</SelectItem>
+                <SelectItem value="2024-25">AY 2024-25</SelectItem>
+                <SelectItem value="2023-24">AY 2023-24</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* NAAC Criterion Filter */}
+            <Select value={naacFilter} onValueChange={setNaacFilter}>
+              <SelectTrigger className="text-xs rounded-xl h-10">
+                <SelectValue placeholder="NAAC Criterion" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All NAAC Criteria</SelectItem>
+                {NAAC_CRITERIA.map((c) => (
+                  <SelectItem key={c.id} value={c.name}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Report Status Filter */}
+            <Select
+              value={statusFilter}
+              onValueChange={(val: any) => setStatusFilter(val)}
+            >
+              <SelectTrigger className="text-xs rounded-xl h-10">
+                <SelectValue placeholder="Report Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Report Statuses</SelectItem>
+                <SelectItem value="SUBMITTED">Pending Review</SelectItem>
+                <SelectItem value="APPROVED">Approved &amp; Archived</SelectItem>
+                <SelectItem value="CHANGES_REQUESTED">Revisions Requested</SelectItem>
+                <SelectItem value="DRAFT">Draft</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
+        </Card>
 
-          {/* Academic Year */}
-          <Select value={academicYearFilter} onValueChange={setAcademicYearFilter}>
-            <SelectTrigger className="h-9 text-xs rounded-xl">
-              <SelectValue placeholder="Academic Year" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Academic Years</SelectItem>
-              <SelectItem value="2025-26">AY 2025-26</SelectItem>
-              <SelectItem value="2024-25">AY 2024-25</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {/* NAAC Criterion */}
-          <Select value={naacFilter} onValueChange={setNaacFilter}>
-            <SelectTrigger className="h-9 text-xs rounded-xl">
-              <SelectValue placeholder="NAAC Criterion" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All NAAC Criteria</SelectItem>
-              {NAAC_CRITERIA.map((c) => (
-                <SelectItem key={c.id} value={c.name}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {/* Status */}
-          <Select
-            value={statusFilter}
-            onValueChange={(val) => setStatusFilter(val as any)}
-          >
-            <SelectTrigger className="h-9 text-xs rounded-xl">
-              <SelectValue placeholder="Report Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Statuses</SelectItem>
-              <SelectItem value="SUBMITTED">Pending Review</SelectItem>
-              <SelectItem value="APPROVED">Approved &amp; Archived</SelectItem>
-              <SelectItem value="CHANGES_REQUESTED">Revisions Requested</SelectItem>
-              <SelectItem value="DRAFT">Draft</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Master Reports Table */}
-        <Card className="border-slate-200/90 shadow-sm rounded-3xl overflow-hidden bg-white">
+        {/* Reports Table */}
+        <Card className="rounded-3xl border-slate-200 shadow-2xs overflow-hidden bg-white">
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
@@ -253,7 +258,7 @@ export const AdminReportsPage: React.FC = () => {
                 {isLoading ? (
                   <tr>
                     <td colSpan={7} className="p-12 text-center text-slate-400">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-600" />
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-[#007A99]" />
                       <span>Loading university reports archive...</span>
                     </td>
                   </tr>
@@ -278,7 +283,7 @@ export const AdminReportsPage: React.FC = () => {
                         {safeFormatDate(report.eventDate, "MMM d, yyyy", "Date TBA")}
                       </td>
 
-                      <td className="p-4 max-w-[200px] truncate text-indigo-900 font-medium">
+                      <td className="p-4 max-w-[200px] truncate text-[#004D61] font-medium">
                         {report.institutionalMapping?.naacCriterion || "Academic & Co-curricular"}
                       </td>
 
@@ -289,26 +294,46 @@ export const AdminReportsPage: React.FC = () => {
                       <td className="p-4 whitespace-nowrap">{getStatusBadge(report.status)}</td>
 
                       <td className="p-4 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* PDF Download Button */}
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                              const doc = generateEventReportPdf(report);
-                              doc.save(`Apollo_Report_${report.eventId}.pdf`);
+                              downloadEventReportPdf(report);
                               toast.success("PDF Downloaded");
                             }}
-                            className="h-8 w-8 p-0 rounded-lg text-slate-500 hover:text-indigo-600"
-                            title="Download PDF"
+                            className="h-8 w-8 p-0 rounded-lg text-rose-600 hover:bg-rose-50"
+                            title="Download PDF Report"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                          </Button>
+
+                          {/* Word (.docx) Download Button */}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                await downloadEventReportDocx(report);
+                                toast.success("Word Document Downloaded");
+                              } catch (e: any) {
+                                toast.error("Word Export Error", { description: e.message });
+                              }
+                            }}
+                            className="h-8 w-8 p-0 rounded-lg text-blue-600 hover:bg-blue-50"
+                            title="Download Word (.docx) Report"
                           >
                             <Download className="w-3.5 h-3.5" />
                           </Button>
 
+                          {/* Review Dossier Button */}
                           <Button
                             asChild
                             size="sm"
-                            className="rounded-xl text-xs font-bold h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white"
+                            className="rounded-xl text-xs font-bold h-8 px-3 bg-[#004D61] hover:bg-[#003847] text-white shadow-2xs"
                           >
                             <Link to={`/admin/reports/${report.eventId}`}>Review &rarr;</Link>
                           </Button>
@@ -331,4 +356,5 @@ export const AdminReportsPage: React.FC = () => {
     </div>
   );
 };
+
 export default AdminReportsPage;

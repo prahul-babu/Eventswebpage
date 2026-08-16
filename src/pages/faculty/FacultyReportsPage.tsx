@@ -6,13 +6,15 @@ import {
   CheckCircle2,
   AlertTriangle,
   Download,
+  FileText,
   Search,
   Loader2,
   Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useFacultyReports } from "@/lib/queries/reports";
-import { generateEventReportPdf } from "@/lib/pdf/reportPdfGenerator";
+import { downloadEventReportPdf } from "@/lib/pdf/reportPdfGenerator";
+import { downloadEventReportDocx } from "@/lib/docx/reportDocxGenerator";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -64,9 +66,21 @@ export const FacultyReportsPage: React.FC = () => {
       toast.error("No Report Draft Available", { description: "Please complete and save the report first." });
       return;
     }
-    const doc = generateEventReportPdf(report);
-    doc.save(`Apollo_Report_${report.eventId}.pdf`);
+    downloadEventReportPdf(report);
     toast.success("PDF Exported Successfully");
+  };
+
+  const handleDownloadDocx = async (report: any) => {
+    if (!report) {
+      toast.error("No Report Draft Available", { description: "Please complete and save the report first." });
+      return;
+    }
+    try {
+      await downloadEventReportDocx(report);
+      toast.success("Word Document Exported Successfully");
+    } catch (e: any) {
+      toast.error("Word Export Error", { description: e.message });
+    }
   };
 
   return (
@@ -121,54 +135,56 @@ export const FacultyReportsPage: React.FC = () => {
           ))}
         </div>
 
-        {/* Search & Filter Toolbar */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full text-xs">
-            {(
-              [
-                { id: "ALL", label: "All Events" },
-                { id: "NOT_STARTED", label: "Report Due" },
-                { id: "DRAFT", label: "Drafts" },
-                { id: "SUBMITTED", label: "In Review" },
-                { id: "CHANGES_REQUESTED", label: "Revisions" },
-                { id: "APPROVED", label: "Approved" },
-              ] as { id: "ALL" | EventReportStatus; label: string }[]
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setStatusFilter(tab.id)}
-                className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all text-xs ${
-                  statusFilter === tab.id
-                    ? "bg-indigo-600 text-white shadow-sm"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+        {/* Filter Bar */}
+        <Card className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Input
+                placeholder="Search event title, category, venue..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 text-xs rounded-xl h-9"
+              />
+            </div>
 
-          <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search reports..."
-              className="h-9 pl-9 text-xs rounded-xl bg-white border-slate-200"
-            />
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+              {(["ALL", "NOT_STARTED", "DRAFT", "SUBMITTED", "APPROVED"] as const).map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setStatusFilter(st)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${
+                    statusFilter === st
+                      ? "bg-[#004D61] text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {st === "ALL"
+                    ? "All Events"
+                    : st === "NOT_STARTED"
+                    ? "Due"
+                    : st === "SUBMITTED"
+                    ? "Under Review"
+                    : st === "APPROVED"
+                    ? "Approved"
+                    : "Drafts"}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        </Card>
 
-        {/* Reports Catalog Table */}
-        <Card className="border-slate-200/90 shadow-sm rounded-3xl overflow-hidden bg-white">
+        {/* Table of Reports */}
+        <Card className="rounded-3xl border border-slate-200 bg-white shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
+            <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
                 <tr>
                   <th className="p-4">Event Details</th>
                   <th className="p-4">Category</th>
                   <th className="p-4">Event Date</th>
-                  <th className="p-4">Verified Attendance</th>
+                  <th className="p-4">Turnout</th>
                   <th className="p-4">Report Status</th>
                   <th className="p-4 text-right">Actions</th>
                 </tr>
@@ -210,18 +226,31 @@ export const FacultyReportsPage: React.FC = () => {
                       <td className="p-4 whitespace-nowrap">{getStatusBadge(reportStatus)}</td>
 
                       <td className="p-4 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1.5">
                           {report && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDownloadPdf(report)}
-                              title="Download Report PDF"
-                              className="h-8 w-8 p-0 text-slate-600 hover:text-indigo-600 rounded-xl"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </Button>
+                            <>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDownloadPdf(report)}
+                                title="Download PDF Report"
+                                className="h-8 w-8 p-0 text-rose-600 hover:bg-rose-50 rounded-xl"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                              </Button>
+
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDownloadDocx(report)}
+                                title="Download Word (.docx) Report"
+                                className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50 rounded-xl"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </Button>
+                            </>
                           )}
 
                           <Button
@@ -231,7 +260,7 @@ export const FacultyReportsPage: React.FC = () => {
                               reportStatus === "APPROVED"
                                 ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
                                 : reportStatus === "NOT_STARTED" || reportStatus === "CHANGES_REQUESTED"
-                                ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+                                ? "bg-[#004D61] hover:bg-[#003847] text-white shadow-xs"
                                 : "bg-slate-900 hover:bg-slate-800 text-white"
                             }`}
                           >
@@ -262,4 +291,5 @@ export const FacultyReportsPage: React.FC = () => {
     </div>
   );
 };
+
 export default FacultyReportsPage;

@@ -24,6 +24,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useEventDetail, useEventUserRegistration } from "@/lib/queries/registrations";
 import { RegistrationDialog } from "@/components/events/RegistrationDialog";
 import { TicketPassDialog } from "@/components/events/TicketPassDialog";
+import { EventAttachmentsManager } from "@/components/attachments/EventAttachmentsManager";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -473,7 +474,17 @@ export const EventDetailPage: React.FC = () => {
               </div>
             )}
 
-            {/* 8. Organiser Contact Card */}
+            {/* 8. Event Attachments & Documentation */}
+            <div className="p-6 bg-white rounded-3xl border border-slate-200/90 shadow-2xs">
+              <EventAttachmentsManager
+                eventId={event.id}
+                allowUpload={role === "admin" || role === "faculty"}
+                title="Event Documentation & Attachments"
+                subtitle="Official schedules, slide decks, and participant resources for this event."
+              />
+            </div>
+
+            {/* 9. Organiser Contact Card */}
             <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="space-y-0.5">
                 <div className="text-xs font-bold text-slate-900">Need help or have queries?</div>

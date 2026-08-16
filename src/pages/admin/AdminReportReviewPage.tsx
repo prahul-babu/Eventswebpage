@@ -5,15 +5,16 @@ import {
   ArrowLeft,
   CheckCircle2,
   AlertTriangle,
-  Download,
   Users,
   DollarSign,
   Loader2,
   FileCheck,
   ShieldCheck,
+  Award,
 } from "lucide-react";
 import { useEventReport, useReviewEventReport } from "@/lib/queries/reports";
-import { generateEventReportPdf } from "@/lib/pdf/reportPdfGenerator";
+import { ReportDownloadActions } from "@/components/reports/ReportDownloadActions";
+import { EventAttachmentsManager } from "@/components/attachments/EventAttachmentsManager";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -74,17 +75,10 @@ export const AdminReportReviewPage: React.FC = () => {
     }
   };
 
-  const handleDownloadPdf = () => {
-    if (!report) return;
-    const doc = generateEventReportPdf(report);
-    doc.save(`Apollo_Report_${report.eventId}.pdf`);
-    toast.success("Official PDF Downloaded");
-  };
-
   if (isLoading) {
     return (
       <div className="max-w-xl mx-auto py-20 px-4 text-center space-y-4">
-        <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600" />
+        <Loader2 className="w-8 h-8 animate-spin mx-auto text-[#007A99]" />
         <p className="text-xs text-slate-500 font-medium">Loading Post-Event Report Dossier...</p>
       </div>
     );
@@ -105,18 +99,18 @@ export const AdminReportReviewPage: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      {/* Top Header Navigation */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4">
+      {/* Top Header Navigation & Actions */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200/90 pb-4">
         <div className="space-y-1">
           <Link
             to="/admin/reports"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#007A99] hover:text-[#004D61]"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back to Accreditation Reports Archive</span>
           </Link>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 truncate max-w-xl">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight truncate max-w-xl">
               {report.eventTitle}
             </h1>
             <Badge
@@ -137,17 +131,10 @@ export const AdminReportReviewPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleDownloadPdf}
-            className="rounded-xl text-xs gap-1.5 h-9"
-          >
-            <Download className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Download Official PDF</span>
-          </Button>
+        {/* Action Controls: Report Downloads & Admin Decisions */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Download PDF & Download Word */}
+          <ReportDownloadActions report={report} size="sm" />
 
           {report.status !== "APPROVED" && (
             <div className="flex items-center gap-2">
@@ -176,13 +163,13 @@ export const AdminReportReviewPage: React.FC = () => {
 
       {/* 2-Column Review Dossier */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Column: 7 Sections Rendered (8 Cols) */}
+        {/* Left Column: Comprehensive Report Sections + Attachments (8 Cols) */}
         <div className="lg:col-span-8 space-y-6">
           {/* 1. Executive Summary */}
-          <Card className="rounded-3xl border-slate-200 shadow-sm overflow-hidden bg-white p-6 space-y-4">
+          <Card className="rounded-3xl border-slate-200 shadow-2xs overflow-hidden bg-white p-6 space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
-                <FileCheck className="w-4 h-4" />
+              <span className="text-xs font-bold uppercase tracking-wider text-[#004D61] flex items-center gap-1.5">
+                <FileCheck className="w-4 h-4 text-[#007A99]" />
                 <span>Section 1: Executive Summary &amp; Objectives</span>
               </span>
             </div>
@@ -192,62 +179,108 @@ export const AdminReportReviewPage: React.FC = () => {
                 __html: DOMPurify.sanitize(report.summary?.executiveSummary || "No summary provided."),
               }}
             />
+
+            {report.summary?.objectives && report.summary.objectives.length > 0 && (
+              <div className="space-y-1.5 pt-3 border-t">
+                <h4 className="text-xs font-bold text-slate-900">Key Objectives &amp; Outcomes:</h4>
+                <ul className="list-disc list-inside text-xs text-slate-600 space-y-1">
+                  {report.summary.objectives.map((obj, i) => (
+                    <li key={i}>{obj}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </Card>
 
           {/* 2. Participation Breakdown */}
-          <Card className="rounded-3xl border-slate-200 shadow-sm overflow-hidden bg-white p-6 space-y-4">
+          <Card className="rounded-3xl border-slate-200 shadow-2xs overflow-hidden bg-white p-6 space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
-                <Users className="w-4 h-4" />
+              <span className="text-xs font-bold uppercase tracking-wider text-[#004D61] flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-[#007A99]" />
                 <span>Section 2: Verified Attendance Metrics</span>
               </span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-              <div className="p-3 bg-slate-50 rounded-xl">
+              <div className="p-3.5 bg-slate-50 rounded-2xl">
                 <span className="text-[10px] text-slate-400 font-bold uppercase block">Registrations</span>
-                <span className="text-base font-extrabold text-slate-900">{report.participation?.registeredCount ?? 0}</span>
+                <span className="text-lg font-extrabold text-slate-900">{report.participation?.registeredCount ?? 0}</span>
               </div>
-              <div className="p-3 bg-emerald-50 rounded-xl">
-                <span className="text-[10px] text-emerald-700 font-bold uppercase block">Turnout Count</span>
-                <span className="text-base font-extrabold text-emerald-800">{report.participation?.actualAttendance ?? 0}</span>
+              <div className="p-3.5 bg-emerald-50 rounded-2xl">
+                <span className="text-[10px] text-emerald-700 font-bold uppercase block">Verified Turnout</span>
+                <span className="text-lg font-extrabold text-emerald-800">{report.participation?.actualAttendance ?? 0}</span>
               </div>
-              <div className="p-3 bg-slate-50 rounded-xl">
+              <div className="p-3.5 bg-slate-50 rounded-2xl">
                 <span className="text-[10px] text-slate-400 font-bold uppercase block">Student Volunteers</span>
-                <span className="text-base font-extrabold text-slate-900">{report.participation?.studentVolunteersCount ?? 0}</span>
+                <span className="text-lg font-extrabold text-slate-900">{report.participation?.studentVolunteersCount ?? 0}</span>
               </div>
             </div>
           </Card>
 
-          {/* 3. Budget Statement */}
-          <Card className="rounded-3xl border-slate-200 shadow-sm overflow-hidden bg-white p-6 space-y-4">
+          {/* 3. Resource Persons */}
+          {report.resourcePersons && report.resourcePersons.length > 0 && (
+            <Card className="rounded-3xl border-slate-200 shadow-2xs overflow-hidden bg-white p-6 space-y-4">
+              <div className="flex items-center justify-between border-b pb-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#004D61] flex items-center gap-1.5">
+                  <Award className="w-4 h-4 text-[#007A99]" />
+                  <span>Section 3: Keynote Speakers &amp; Resource Persons</span>
+                </span>
+              </div>
+              <div className="divide-y divide-slate-100 text-xs">
+                {report.resourcePersons.map((rp, i) => (
+                  <div key={rp.id || i} className="py-2.5 flex items-start justify-between gap-2">
+                    <div>
+                      <strong className="text-slate-900 text-xs block">{rp.name}</strong>
+                      <span className="text-slate-500 text-[11px]">{rp.designation} &bull; {rp.organisation}</span>
+                    </div>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {rp.sessionTopic || "Guest Keynote"}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {/* 4. Budget Statement */}
+          <Card className="rounded-3xl border-slate-200 shadow-2xs overflow-hidden bg-white p-6 space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
-                <DollarSign className="w-4 h-4" />
+              <span className="text-xs font-bold uppercase tracking-wider text-[#004D61] flex items-center gap-1.5">
+                <DollarSign className="w-4 h-4 text-[#007A99]" />
                 <span>Section 4: Financial Expenditure &amp; Balance</span>
               </span>
             </div>
             <div className="grid grid-cols-3 gap-3 text-xs">
-              <div className="p-3 bg-slate-50 rounded-xl">
+              <div className="p-3.5 bg-slate-50 rounded-2xl">
                 <span className="text-[10px] text-slate-400 font-bold uppercase block">Allocated</span>
                 <span className="font-bold text-slate-900">₹{(report.finance?.budgetAllocated ?? 0).toLocaleString()}</span>
               </div>
-              <div className="p-3 bg-slate-50 rounded-xl">
+              <div className="p-3.5 bg-slate-50 rounded-2xl">
                 <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Spent</span>
                 <span className="font-bold text-rose-700">₹{(report.finance?.budgetSpent ?? 0).toLocaleString()}</span>
               </div>
-              <div className="p-3 bg-emerald-50 rounded-xl">
+              <div className="p-3.5 bg-emerald-50 rounded-2xl">
                 <span className="text-[10px] text-emerald-700 font-bold uppercase block">Balance Remaining</span>
                 <span className="font-bold text-emerald-800">₹{(report.finance?.balance ?? 0).toLocaleString()}</span>
               </div>
             </div>
           </Card>
+
+          {/* 5. Event Documentation & Attachments Manager */}
+          <Card className="rounded-3xl border-slate-200 shadow-2xs overflow-hidden bg-white p-6">
+            <EventAttachmentsManager
+              eventId={report.eventId}
+              allowUpload={true}
+              title="Event Attachments & Supporting Documentation"
+              subtitle="Original event photographs, video recordings, attendance sheets, and presentations."
+            />
+          </Card>
         </div>
 
-        {/* Right Column: Accreditation & Decision Card (4 Cols) */}
+        {/* Right Column: Accreditation & Governance Metadata (4 Cols) */}
         <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-20">
-          <Card className="rounded-3xl border-slate-200 shadow-sm bg-white p-6 space-y-4">
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-indigo-600" />
+          <Card className="rounded-3xl border-slate-200 shadow-2xs bg-white p-6 space-y-4">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-[#007A99]" />
               <span>Accreditation Classification</span>
             </div>
 
@@ -257,24 +290,30 @@ export const AdminReportReviewPage: React.FC = () => {
                 <strong className="text-slate-900">{report.institutionalMapping?.academicYear || "2025-26"}</strong>
               </div>
 
-              <div className="pt-2 border-t">
+              <div className="pt-2 border-t border-slate-100">
                 <span className="text-slate-400 text-[10px] font-bold uppercase block">NAAC Criterion</span>
-                <strong className="text-indigo-900 block">{report.institutionalMapping?.naacCriterion || "Academic & Co-curricular"}</strong>
+                <strong className="text-[#004D61] block">{report.institutionalMapping?.naacCriterion || "Academic & Co-curricular"}</strong>
               </div>
 
-              <div className="pt-2 border-t">
+              <div className="pt-2 border-t border-slate-100">
                 <span className="text-slate-400 text-[10px] font-bold uppercase block">Activity Classification</span>
                 <Badge variant="secondary" className="text-[10px] font-bold">
                   {report.institutionalMapping?.activityType || "Co-curricular"}
                 </Badge>
               </div>
 
-              <div className="pt-2 border-t">
+              <div className="pt-2 border-t border-slate-100">
                 <span className="text-slate-400 text-[10px] font-bold uppercase block">Certificates Issued</span>
                 <strong className="text-slate-900">
                   {report.institutionalMapping?.certificatesIssuedCount || report.participation?.registeredCount || 0} Verified E-Certificates
                 </strong>
               </div>
+            </div>
+
+            {/* Quick Export Box */}
+            <div className="pt-4 border-t border-slate-100 space-y-2">
+              <span className="text-[11px] font-bold text-slate-700 block">Export Formats:</span>
+              <ReportDownloadActions report={report} size="sm" className="w-full flex-col sm:flex-row" />
             </div>
           </Card>
         </div>
@@ -345,4 +384,5 @@ export const AdminReportReviewPage: React.FC = () => {
     </div>
   );
 };
+
 export default AdminReportReviewPage;

@@ -10,3 +10,4 @@ export * from "./registration";
 export * from "./payment";
 export * from "./report";
 export * from "./facultyApplication";
+export * from "./attachment";

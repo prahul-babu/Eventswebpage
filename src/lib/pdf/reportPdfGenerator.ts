@@ -1,9 +1,12 @@
-import jsPDF from "jspdf";
+import jsPDFModule, { type jsPDF as jsPDFType } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { format } from "date-fns";
 import type { EventReport } from "@/types";
+import { sanitizeDownloadFileName } from "../../config/file-types";
 
-export function generateEventReportPdf(report: EventReport): jsPDF {
+const jsPDF = (jsPDFModule as any).jsPDF || jsPDFModule;
+
+export function generateEventReportPdf(report: EventReport): jsPDFType {
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
@@ -16,27 +19,27 @@ export function generateEventReportPdf(report: EventReport): jsPDF {
   // =========================================================================
   // 1. Institutional Header & Letterhead
   // =========================================================================
-  doc.setFillColor(49, 46, 129); // #312E81 Indigo 950
+  doc.setFillColor(0, 77, 97); // #004D61 Apollo University Deep Teal
   doc.rect(0, 0, pageWidth, 24, "F");
 
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text("THE APOLLO UNIVERSITY", pageWidth / 2, 10, { align: "center" });
+  doc.setFontSize(13);
+  doc.text("THE APOLLO UNIVERSITY", pageWidth / 2, 8, { align: "center" });
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(224, 231, 255); // Indigo 100
+  doc.setFontSize(8.5);
+  doc.setTextColor(224, 243, 247); // Cyan 100
   doc.text(
-    `DIRECTORATE OF ACADEMIC QUALITY & EVENT GOVERNANCE • ${report.department.toUpperCase()}`,
+    `SCHOOL OF TECHNOLOGY • B.TECH EVENT HUB • ${report.department.toUpperCase()}`,
     pageWidth / 2,
-    16,
+    14,
     { align: "center" }
   );
   doc.text(
-    "OFFICIAL POST-EVENT COMPREHENSIVE OUTCOME REPORT",
+    "OFFICIAL POST-EVENT COMPREHENSIVE OUTCOME & ACCREDITATION REPORT",
     pageWidth / 2,
-    21,
+    19,
     { align: "center" }
   );
 
@@ -45,12 +48,12 @@ export function generateEventReportPdf(report: EventReport): jsPDF {
   // Metadata Strip
   doc.setTextColor(15, 23, 42); // Slate 900
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
+  doc.setFontSize(12);
   doc.text(report.eventTitle, 14, currentY);
 
   currentY += 6;
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139);
 
   const eventDateStr = report.eventDate ? format(new Date(report.eventDate), "MMMM dd, yyyy") : "N/A";
@@ -67,10 +70,10 @@ export function generateEventReportPdf(report: EventReport): jsPDF {
     currentY
   );
 
-  currentY += 8;
+  currentY += 7;
   doc.setDrawColor(226, 232, 240);
   doc.line(14, currentY, pageWidth - 14, currentY);
-  currentY += 8;
+  currentY += 7;
 
   // Helper for Section Headers
   const renderSectionHeader = (title: string, sectionNumber: number) => {
@@ -78,14 +81,14 @@ export function generateEventReportPdf(report: EventReport): jsPDF {
       doc.addPage();
       currentY = 20;
     }
-    doc.setFillColor(241, 245, 249);
+    doc.setFillColor(240, 249, 251); // #F0F9FB Light Cyan Tint
     doc.rect(14, currentY - 4, pageWidth - 28, 7, "F");
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(49, 46, 129);
+    doc.setFontSize(9.5);
+    doc.setTextColor(0, 77, 97); // #004D61
     doc.text(`SECTION ${sectionNumber}: ${title.toUpperCase()}`, 16, currentY + 1);
-    currentY += 9;
+    currentY += 8;
   };
 
   // =========================================================================
@@ -94,7 +97,7 @@ export function generateEventReportPdf(report: EventReport): jsPDF {
   renderSectionHeader("Executive Summary & Objectives", 1);
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(15, 23, 42);
   doc.text("Executive Summary:", 14, currentY);
   currentY += 4;
@@ -102,7 +105,7 @@ export function generateEventReportPdf(report: EventReport): jsPDF {
   doc.setFont("helvetica", "normal");
   doc.setTextColor(51, 65, 85);
   const execSummaryLines = doc.splitTextToSize(
-    report.summary.executiveSummary.replace(/<[^>]*>/g, "") || "No executive summary provided.",
+    report.summary.executiveSummary.replace(/<[^>]*>/g, " ").trim() || "No executive summary provided.",
     pageWidth - 28
   );
   doc.text(execSummaryLines, 14, currentY);
@@ -142,7 +145,7 @@ export function generateEventReportPdf(report: EventReport): jsPDF {
       ["Student Volunteers", String(report.participation.studentVolunteersCount), (report.participation.studentVolunteersNames || []).join(", ") || "N/A"],
     ],
     theme: "grid",
-    headStyles: { fillColor: [49, 46, 129], textColor: [255, 255, 255], fontSize: 8 },
+    headStyles: { fillColor: [0, 77, 97], textColor: [255, 255, 255], fontSize: 8 },
     bodyStyles: { fontSize: 8, textColor: [51, 65, 85] },
     margin: { left: 14, right: 14 },
   });
@@ -164,7 +167,7 @@ export function generateEventReportPdf(report: EventReport): jsPDF {
         p.sessionTopic,
       ]),
       theme: "grid",
-      headStyles: { fillColor: [49, 46, 129], fontSize: 8 },
+      headStyles: { fillColor: [0, 77, 97], fontSize: 8 },
       bodyStyles: { fontSize: 8 },
       margin: { left: 14, right: 14 },
     });
@@ -196,7 +199,7 @@ export function generateEventReportPdf(report: EventReport): jsPDF {
     head: [["Budget Head", "Description", "Vendor / Source", "Amount (INR)"]],
     body: expenseRows,
     theme: "striped",
-    headStyles: { fillColor: [49, 46, 129], fontSize: 8 },
+    headStyles: { fillColor: [0, 77, 97], fontSize: 8 },
     bodyStyles: { fontSize: 8 },
     margin: { left: 14, right: 14 },
   });
@@ -229,7 +232,7 @@ export function generateEventReportPdf(report: EventReport): jsPDF {
       ["Certificates Issued", `${report.institutionalMapping?.certificatesIssuedCount || report.participation?.registeredCount || 0} E-Certificates verified`],
     ],
     theme: "grid",
-    headStyles: { fillColor: [49, 46, 129], fontSize: 8 },
+    headStyles: { fillColor: [0, 77, 97], fontSize: 8 },
     bodyStyles: { fontSize: 8 },
     margin: { left: 14, right: 14 },
   });
@@ -271,4 +274,14 @@ export function generateEventReportPdf(report: EventReport): jsPDF {
   doc.text("The Apollo University", col3X, currentY + 20);
 
   return doc;
+}
+
+/**
+ * Trigger browser download for a generated PDF report
+ */
+export function downloadEventReportPdf(report: EventReport): void {
+  const doc = generateEventReportPdf(report);
+  const baseName = sanitizeDownloadFileName(report.eventTitle || "Event");
+  const fileName = `${baseName}-Event-Report.pdf`;
+  doc.save(fileName);
 }
