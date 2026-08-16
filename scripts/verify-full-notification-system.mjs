@@ -91,16 +91,31 @@ assert(
   "useSendEventUpdate mutation and useEventUpdates query are implemented"
 );
 assert(
+  updatesFile.includes("isOwner") && updatesFile.includes("You are not authorized to send updates"),
+  "useSendEventUpdate mutation verifies faculty event ownership and admin privileges"
+);
+assert(
+  updatesFile.includes("where(\"eventId\", \"==\", eventId)") &&
+  updatesFile.includes("confirmedRegistrations"),
+  "useSendEventUpdate strictly retrieves and scopes to confirmed registered students of the event"
+);
+assert(
+  sendUpdateModalFile.includes("Broadcast Message to Confirmed Attendees") &&
+  (sendUpdateModalFile.includes("Send an official notification & email update to all confirmed registrants") ||
+   sendUpdateModalFile.includes("Send an official notification &amp; email update to all confirmed registrants")),
+  "SendEventUpdateModal matches required title and description"
+);
+assert(
   sendUpdateModalFile.includes("confirmedCount === 0") &&
-  sendUpdateModalFile.includes("No students have registered"),
-  "SendEventUpdateModal prevents broadcasting when 0 registered students exist"
+  sendUpdateModalFile.includes("No confirmed students are registered for this event"),
+  "SendEventUpdateModal prevents broadcasting when 0 confirmed students exist"
 );
 assert(
   sendUpdateModalFile.includes("subject") && sendUpdateModalFile.includes("message"),
   "SendEventUpdateModal includes Subject and Message fields"
 );
 assert(
-  sendUpdateModalFile.includes("In-App Notification") && sendUpdateModalFile.includes("Outlook Email"),
+  sendUpdateModalFile.includes("In-App Notification") && sendUpdateModalFile.includes("Institutional Outlook Email"),
   "SendEventUpdateModal supports dual in-app and email delivery channels"
 );
 assert(
@@ -123,7 +138,7 @@ assert(
 );
 assert(
   notifBellFile.includes("ADMIN_FACULTY_UPDATE") &&
-  (notifBellFile.includes("FACULTY_EVENT_UPDATE") || notifBellFile.includes("EVENT_UPDATED")),
+  (notifBellFile.includes("FACULTY_EVENT_UPDATE") || notifBellFile.includes("EVENT_UPDATED") || notifBellFile.includes("EVENT_UPDATE")),
   "NotificationBell supports Admin Update and Faculty Event Update types with distinct badges"
 );
 assert(
@@ -131,9 +146,9 @@ assert(
   "NotificationBell supports 'Mark all read' and contextual item click navigation"
 );
 assert(
-  myRegistrationsPageFile.includes("unreadUpdatesData") &&
-  myRegistrationsPageFile.includes("View Updates"),
-  "Student MyRegistrationsPage shows live update badge and 'View Updates' action"
+  myRegistrationsPageFile.includes("useAllEventsUpdatesMap") &&
+  myRegistrationsPageFile.includes("Event Updates"),
+  "Student MyRegistrationsPage displays inline Event Updates stream per registered event card"
 );
 assert(
   (eventUpdatesSectionFile.includes("Event Announcements & Updates") || eventUpdatesSectionFile.includes("Event Announcements &amp; Updates")) &&

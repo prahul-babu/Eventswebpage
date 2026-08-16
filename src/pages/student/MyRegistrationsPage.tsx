@@ -19,7 +19,10 @@ import {
   useCancelRegistration,
   StudentRegistrationItem,
 } from "@/lib/queries/registrations";
-import { useUnreadUpdatesForStudent } from "@/lib/queries/updates";
+import {
+  useUnreadUpdatesForStudent,
+  useAllEventsUpdatesMap,
+} from "@/lib/queries/updates";
 import { TicketPassDialog } from "@/components/events/TicketPassDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
@@ -43,6 +46,7 @@ export const MyRegistrationsPage: React.FC = () => {
 
   const { data, isLoading } = useStudentRegistrations(currentUid, currentEmail);
   const { data: unreadUpdatesData } = useUnreadUpdatesForStudent(currentUid, currentEmail);
+  const { data: updatesMap } = useAllEventsUpdatesMap();
   const cancelMutation = useCancelRegistration();
 
   const [selectedPass, setSelectedPass] = useState<StudentRegistrationItem | null>(null);
@@ -81,6 +85,7 @@ export const MyRegistrationsPage: React.FC = () => {
     const isCancelled = item.registration.status === "CANCELLED";
     const canCancel = !isCancelled && safeToDate(item.event.startAt).getTime() > new Date().getTime();
     const unreadCount = unreadUpdatesData?.unreadCountByEvent?.[item.event.id] || 0;
+    const eventUpdates = updatesMap?.[item.event.id] || [];
 
     return (
       <Card
@@ -91,104 +96,147 @@ export const MyRegistrationsPage: React.FC = () => {
             : "border-slate-200/90 shadow-2xs hover:border-slate-300"
         }`}
       >
-        <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          {/* Left: Thumbnail & Title/Meta */}
-          <div className="flex items-start gap-4 flex-1 min-w-0">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-slate-900 shrink-0 border border-slate-100 relative">
-              {item.event.bannerUrl ? (
-                <img
-                  src={item.event.bannerUrl}
-                  alt={item.event.title}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-gradient-to-tr from-[#004D61] to-[#007A99] flex items-center justify-center text-white">
-                  <Ticket className="w-6 h-6 text-amber-300" />
-                </div>
-              )}
-
-              {unreadCount > 0 && (
-                <div className="absolute top-1 right-1 w-3 h-3 rounded-full bg-amber-500 ring-2 ring-white animate-ping" />
-              )}
-            </div>
-
-            <div className="space-y-1.5 min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                {getStatusBadge(item.registration.status)}
-                <span className="font-mono text-[11px] font-bold text-slate-500">
-                  {item.registration.ticketCode}
-                </span>
+        <CardContent className="p-4 sm:p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            {/* Left: Thumbnail & Title/Meta */}
+            <div className="flex items-start gap-4 flex-1 min-w-0">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-slate-900 shrink-0 border border-slate-100 relative">
+                {item.event.bannerUrl ? (
+                  <img
+                    src={item.event.bannerUrl}
+                    alt={item.event.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-tr from-[#004D61] to-[#007A99] flex items-center justify-center text-white">
+                    <Ticket className="w-6 h-6 text-amber-300" />
+                  </div>
+                )}
 
                 {unreadCount > 0 && (
-                  <Link
-                    to={`/events/${item.event.id}#updates`}
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white shadow-2xs hover:bg-amber-600 transition-colors"
-                  >
-                    <Bell className="w-3 h-3" />
-                    <span>{unreadCount} New Update{unreadCount > 1 ? "s" : ""}</span>
-                  </Link>
+                  <div className="absolute top-1 right-1 w-3 h-3 rounded-full bg-amber-500 ring-2 ring-white animate-ping" />
                 )}
               </div>
 
-              <Link
-                to={`/events/${item.event.id}`}
-                className="font-bold text-sm sm:text-base text-slate-900 hover:text-[#007A99] transition-colors line-clamp-1 block"
-              >
-                {item.event.title}
-              </Link>
+              <div className="space-y-1.5 min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {getStatusBadge(item.registration.status)}
+                  <span className="font-mono text-[11px] font-bold text-slate-500">
+                    {item.registration.ticketCode}
+                  </span>
 
-              <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-[#007A99]" />
-                  {safeFormatDate(item.event.startAt, "MMM d, yyyy • h:mm a", "Date TBA")}
-                </span>
-                <span className="flex items-center gap-1 truncate max-w-[200px]">
-                  <MapPin className="w-3.5 h-3.5 text-[#007A99]" />
-                  {item.event.venueLocation || "Campus Venue"}
-                </span>
+                  {unreadCount > 0 && (
+                    <Link
+                      to={`/events/${item.event.id}#updates`}
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white shadow-2xs hover:bg-amber-600 transition-colors"
+                    >
+                      <Bell className="w-3 h-3" />
+                      <span>{unreadCount} New Update{unreadCount > 1 ? "s" : ""}</span>
+                    </Link>
+                  )}
+                </div>
+
+                <Link
+                  to={`/events/${item.event.id}`}
+                  className="font-bold text-sm sm:text-base text-slate-900 hover:text-[#007A99] transition-colors line-clamp-1 block"
+                >
+                  {item.event.title}
+                </Link>
+
+                <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                  <span className="flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-[#007A99]" />
+                    {safeFormatDate(item.event.startAt, "MMM d, yyyy • h:mm a", "Date TBA")}
+                  </span>
+                  <span className="flex items-center gap-1 truncate max-w-[200px]">
+                    <MapPin className="w-3.5 h-3.5 text-[#007A99]" />
+                    {item.event.venueLocation || "Campus Venue"}
+                  </span>
+                </div>
               </div>
+            </div>
+
+            {/* Right: Actions */}
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-none border-slate-100 flex-wrap">
+              {unreadCount > 0 && (
+                <Button
+                  asChild
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl text-xs border-amber-300 bg-amber-50/50 hover:bg-amber-100 text-amber-900 font-bold gap-1 h-9"
+                >
+                  <Link to={`/events/${item.event.id}#updates`}>
+                    <Megaphone className="w-3.5 h-3.5 text-amber-600" />
+                    <span>View Updates ({unreadCount})</span>
+                  </Link>
+                </Button>
+              )}
+
+              {!isCancelled && (
+                <Button
+                  size="sm"
+                  onClick={() => setSelectedPass(item)}
+                  className="rounded-xl text-xs bg-[#004D61] hover:bg-[#003847] text-white gap-1.5 shadow-2xs flex-1 sm:flex-none h-9"
+                >
+                  <QrCode className="w-3.5 h-3.5" />
+                  <span>View Ticket Pass</span>
+                </Button>
+              )}
+
+              {canCancel && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setCancelTarget(item)}
+                  className="rounded-xl text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 flex-1 sm:flex-none h-9"
+                >
+                  <XCircle className="w-3.5 h-3.5 mr-1" />
+                  <span>Cancel</span>
+                </Button>
+              )}
             </div>
           </div>
 
-          {/* Right: Actions */}
-          <div className="flex items-center gap-2 w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-none border-slate-100 flex-wrap">
-            {unreadCount > 0 && (
-              <Button
-                asChild
-                size="sm"
-                variant="outline"
-                className="rounded-xl text-xs border-amber-300 bg-amber-50/50 hover:bg-amber-100 text-amber-900 font-bold gap-1 h-9"
-              >
-                <Link to={`/events/${item.event.id}#updates`}>
-                  <Megaphone className="w-3.5 h-3.5 text-amber-600" />
-                  <span>View Updates ({unreadCount})</span>
+          {/* Event-specific Updates Feed Section */}
+          {eventUpdates.length > 0 && (
+            <div className="pt-3 border-t border-slate-100 bg-slate-50/80 rounded-xl p-3.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#004D61] flex items-center gap-1.5">
+                  <Megaphone className="w-3.5 h-3.5 text-[#007A99]" />
+                  Event Updates ({eventUpdates.length})
+                </span>
+                <Link
+                  to={`/events/${item.event.id}#updates`}
+                  className="text-[11px] text-[#007A99] font-bold hover:underline inline-flex items-center gap-1"
+                >
+                  <span>All Announcements</span>
+                  <span>&rarr;</span>
                 </Link>
-              </Button>
-            )}
+              </div>
 
-            {!isCancelled && (
-              <Button
-                size="sm"
-                onClick={() => setSelectedPass(item)}
-                className="rounded-xl text-xs bg-[#004D61] hover:bg-[#003847] text-white gap-1.5 shadow-2xs flex-1 sm:flex-none h-9"
-              >
-                <QrCode className="w-3.5 h-3.5" />
-                <span>View Ticket Pass</span>
-              </Button>
-            )}
-
-            {canCancel && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setCancelTarget(item)}
-                className="rounded-xl text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 flex-1 sm:flex-none h-9"
-              >
-                <XCircle className="w-3.5 h-3.5 mr-1" />
-                <span>Cancel</span>
-              </Button>
-            )}
-          </div>
+              <div className="space-y-2">
+                {eventUpdates.slice(0, 3).map((upd) => (
+                  <div
+                    key={upd.id}
+                    className="p-2.5 rounded-lg bg-white border border-slate-200/80 shadow-2xs text-xs space-y-1"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#007A99] shrink-0" />
+                        {upd.subject}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium shrink-0">
+                        {safeFormatDate(upd.createdAt, "MMM d, yyyy", "Recent")}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-relaxed line-clamp-2 pl-3">
+                      {upd.message}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     );

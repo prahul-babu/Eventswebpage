@@ -11,6 +11,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { useSendEventUpdate } from "@/lib/queries/updates";
+import { useEventRegistrants } from "@/lib/queries/faculty";
 import {
   Dialog,
   DialogContent,
@@ -38,7 +39,7 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
   open,
   onOpenChange,
   event,
-  registrants = [],
+  registrants: propRegistrants,
 }) => {
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
@@ -48,15 +49,25 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
 
   const sendMutation = useSendEventUpdate();
 
-  const confirmedAttendees = registrants.filter(
-    (r) => r.status === "CONFIRMED" || r.status === "ATTENDED" || !r.status
-  );
-  const confirmedCount = confirmedAttendees.length || event.registeredCount || 0;
+  // Always query database directly to ensure we have the live, exact registration roster
+  const { data: fetchedRegistrants, isLoading: isRegsLoading } = useEventRegistrants(event?.id);
+
+  const activeRegistrants =
+    propRegistrants && propRegistrants.length > 0
+      ? propRegistrants
+      : fetchedRegistrants || [];
+
+  const confirmedAttendees = activeRegistrants.filter((r) => {
+    const s = String(r.status || "").toUpperCase().trim();
+    return s === "CONFIRMED" || s === "ATTENDED" || s === "ACTIVE" || !r.status;
+  });
+
+  const confirmedCount = confirmedAttendees.length;
 
   const handleOpenConfirm = () => {
     if (confirmedCount === 0) {
-      toast.error("No Registered Students", {
-        description: "You cannot dispatch updates because there are currently 0 registered students for this event.",
+      toast.error("No Confirmed Registrants", {
+        description: "No confirmed students are registered for this event.",
       });
       return;
     }
@@ -78,7 +89,7 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
 
   const handleDispatch = async () => {
     try {
-      await sendMutation.mutateAsync({
+      const result = await sendMutation.mutateAsync({
         eventId: event.id,
         subject: subject.trim(),
         message: message.trim(),
@@ -92,14 +103,18 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
       onOpenChange(false);
       setSubject("");
       setMessage("");
+
+      toast.success("Broadcast sent successfully", {
+        description: `${result.notificationsCreated} student(s) notified in portal, ${result.emailsSent} email(s) queued.`,
+      });
     } catch {
-      // Toast handled by mutation
+      // Toast error handled by mutation
     }
   };
 
   return (
     <>
-      {/* Main Send Event Update Form Dialog */}
+      {/* Main Broadcast Message to Confirmed Attendees Form Dialog */}
       <Dialog open={open && !confirmStepOpen} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-xl rounded-3xl p-6 space-y-4">
           <DialogHeader className="text-left space-y-1">
@@ -108,11 +123,11 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
                 <Megaphone className="w-4 h-4" />
               </div>
               <DialogTitle className="text-lg font-bold text-slate-900">
-                Send Update to Registered Students
+                Broadcast Message to Confirmed Attendees
               </DialogTitle>
             </div>
             <DialogDescription className="text-xs text-slate-500">
-              Broadcast an official event notification &amp; email update directly to all confirmed registrants for this event.
+              Send an official notification &amp; email update to all confirmed registrants for this event.
             </DialogDescription>
           </DialogHeader>
 
@@ -137,16 +152,32 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
                   }`}
                 >
                   <Users className="w-3 h-3 mr-1" />
-                  {confirmedCount} Registered Student{confirmedCount === 1 ? "" : "s"}
+                  {isRegsLoading ? (
+                    <span className="flex items-center gap-1">
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      Loading...
+                    </span>
+                  ) : (
+                    `${confirmedCount} Confirmed Registrant${confirmedCount === 1 ? "" : "s"}`
+                  )}
                 </Badge>
               </div>
             </div>
 
-            {confirmedCount === 0 && (
-              <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200/70 text-amber-800 text-[11px] flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>No students have registered for this event yet. You can only send broadcasts once students are registered.</span>
-              </div>
+            {/* Dynamic Recipient Notification Copy */}
+            {!isRegsLoading && (
+              <p className="text-[11px] text-slate-600">
+                {confirmedCount > 0 ? (
+                  <>
+                    Send an official notification &amp; email update to all <strong>{confirmedCount}</strong> confirmed registrant{confirmedCount === 1 ? "" : "s"} for this event.
+                  </>
+                ) : (
+                  <span className="text-amber-800 font-medium flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    No confirmed students are registered for this event.
+                  </span>
+                )}
+              </p>
             )}
           </div>
 
@@ -159,11 +190,11 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
                 <span className="text-[10px] text-slate-400 font-normal">{subject.length}/100</span>
               </Label>
               <Input
-                placeholder="e.g. Venue Change & Important Instructions, Reporting Time..."
+                placeholder="e.g. Venue Change, Reporting Time, Prerequisites..."
                 value={subject}
                 onChange={(e) => setSubject(e.target.value.slice(0, 100))}
                 className="text-xs rounded-xl h-10"
-                disabled={confirmedCount === 0}
+                disabled={confirmedCount === 0 || isRegsLoading}
               />
             </div>
 
@@ -171,12 +202,12 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
             <div className="space-y-1.5">
               <Label className="font-bold text-slate-700">Message *</Label>
               <Textarea
-                placeholder="Enter your update message detailing instructions, schedule changes, or prerequisites..."
+                placeholder="Enter your announcement message detailing instructions, venue revisions, or schedule adjustments..."
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 rows={5}
                 className="text-xs rounded-xl leading-relaxed"
-                disabled={confirmedCount === 0}
+                disabled={confirmedCount === 0 || isRegsLoading}
               />
             </div>
 
@@ -190,7 +221,7 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
                     checked={inAppChannel}
                     onChange={(e) => setInAppChannel(e.target.checked)}
                     className="w-4 h-4 rounded text-[#007A99] focus:ring-[#007A99]"
-                    disabled={confirmedCount === 0}
+                    disabled={confirmedCount === 0 || isRegsLoading}
                   />
                   <div className="text-xs">
                     <span className="font-bold text-slate-800 flex items-center gap-1.5">
@@ -207,7 +238,7 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
                     checked={emailChannel}
                     onChange={(e) => setEmailChannel(e.target.checked)}
                     className="w-4 h-4 rounded text-[#007A99] focus:ring-[#007A99]"
-                    disabled={confirmedCount === 0}
+                    disabled={confirmedCount === 0 || isRegsLoading}
                   />
                   <div className="text-xs">
                     <span className="font-bold text-slate-800 flex items-center gap-1.5">
@@ -233,11 +264,11 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
             <Button
               size="sm"
               onClick={handleOpenConfirm}
-              disabled={confirmedCount === 0 || !subject.trim() || !message.trim()}
+              disabled={confirmedCount === 0 || isRegsLoading || !subject.trim() || !message.trim()}
               className="rounded-xl text-xs bg-[#004D61] hover:bg-[#003847] text-white font-bold gap-1.5 shadow-2xs cursor-pointer"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>Send Update</span>
+              <span>Send Broadcast</span>
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -251,10 +282,10 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
               <AlertTriangle className="w-5 h-5" />
             </div>
             <DialogTitle className="text-lg font-bold text-slate-900">
-              Confirm Update Broadcast?
+              Confirm Broadcast to Attendees?
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500 leading-relaxed">
-              You are about to dispatch <strong className="text-slate-900">"{subject}"</strong> to <strong className="text-slate-900">{confirmedCount} registered student(s)</strong>.
+              You are about to dispatch <strong className="text-slate-900">"{subject}"</strong> to <strong className="text-slate-900">{confirmedCount} confirmed student attendee{confirmedCount === 1 ? "" : "s"}</strong>.
             </DialogDescription>
           </DialogHeader>
 
@@ -272,7 +303,7 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
             {emailChannel && (
               <div className="flex items-center gap-2 text-emerald-700">
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>Branded HTML email to registered university Outlook inboxes</span>
+                <span>Institutional Outlook HTML email to registered university inboxes</span>
               </div>
             )}
           </div>
@@ -296,12 +327,12 @@ export const SendEventUpdateModal: React.FC<SendEventUpdateModalProps> = ({
               {sendMutation.isPending ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Sending update...</span>
+                  <span>Sending...</span>
                 </>
               ) : (
                 <>
                   <Send className="w-3.5 h-3.5" />
-                  <span>Confirm &amp; Send Update</span>
+                  <span>Confirm &amp; Send Broadcast</span>
                 </>
               )}
             </Button>

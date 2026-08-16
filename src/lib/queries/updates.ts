@@ -5,9 +5,11 @@ import {
   getDocs,
   getDoc,
   setDoc,
+  addDoc,
   query,
   where,
   orderBy,
+  limit,
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
@@ -104,7 +106,56 @@ export function useEventUpdates(eventId?: string) {
 }
 
 /**
- * 2. Hook to dispatch an Event Update to confirmed registered students
+ * 2. Hook to fetch all event updates grouped by eventId (for Registered Events list)
+ */
+export function useAllEventsUpdatesMap() {
+  return useQuery<Record<string, EventUpdate[]>>({
+    queryKey: ["event_updates", "all_map"],
+    queryFn: async () => {
+      try {
+        const topRef = collection(db, "event_updates");
+        const topQ = query(topRef, orderBy("createdAt", "desc"), limit(100));
+        const snap = await getDocs(topQ);
+
+        const map: Record<string, EventUpdate[]> = {};
+        snap.docs.forEach((d) => {
+          const raw = d.data() as FirestoreEventUpdateDocument;
+          const item: EventUpdate = {
+            id: d.id,
+            eventId: raw.eventId || "",
+            eventTitle: raw.eventTitle || "",
+            senderId: raw.senderId || "",
+            senderName: raw.senderName || "Faculty Coordinator",
+            senderEmail: raw.senderEmail || "",
+            senderRole: raw.senderRole || "Faculty",
+            subject: raw.subject || "Event Update",
+            message: raw.message || "",
+            priority: raw.priority || "NORMAL",
+            recipientsCount: raw.recipientsCount ?? 0,
+            notificationsCreated: raw.notificationsCreated ?? 0,
+            emailsSent: raw.emailsSent ?? 0,
+            emailsFailed: raw.emailsFailed ?? 0,
+            channels: raw.channels || { inApp: true, email: true },
+            createdAt: toDate(raw.createdAt),
+            updatedAt: toDate(raw.updatedAt),
+          };
+          if (item.eventId) {
+            if (!map[item.eventId]) map[item.eventId] = [];
+            map[item.eventId].push(item);
+          }
+        });
+        return map;
+      } catch (err) {
+        console.warn("[useAllEventsUpdatesMap] Fetch warning:", err);
+        return {};
+      }
+    },
+    staleTime: 1000 * 30, // 30 seconds
+  });
+}
+
+/**
+ * 3. Hook to dispatch an Event Update to confirmed registered students
  */
 export function useSendEventUpdate() {
   const queryClient = useQueryClient();
@@ -138,6 +189,26 @@ export function useSendEventUpdate() {
       const senderEmail = auth.currentUser.email || "";
       const senderName = auth.currentUser.displayName || senderEmail.split("@")[0] || "Faculty Coordinator";
 
+      // Verify faculty event ownership authorization
+      const userDocRef = doc(db, "users", senderId);
+      const userSnap = await getDoc(userDocRef);
+      const userData = userSnap.exists() ? userSnap.data() : null;
+      const userRole = (
+        userData?.role ||
+        (typeof window !== "undefined" ? localStorage.getItem("apollo_user_role") : null) ||
+        "faculty"
+      ).toLowerCase().trim();
+
+      const isOwner =
+        eventData.organiserId === senderId ||
+        (eventData.organiserEmail && senderEmail && eventData.organiserEmail.toLowerCase() === senderEmail.toLowerCase()) ||
+        eventData.createdBy === senderId;
+      const isAdmin = userRole === "admin";
+
+      if (!isOwner && !isAdmin) {
+        throw new Error("You are not authorized to send updates for this event.");
+      }
+
       // Step 2: Query ONLY confirmed / attended registered students for this event
       const regsRef = collection(db, "registrations");
       const regsQuery = query(
@@ -152,9 +223,10 @@ export function useSendEventUpdate() {
 
       regsSnap.docs.forEach((docSnap) => {
         const reg = { id: docSnap.id, ...docSnap.data() } as Registration;
-        // Accept CONFIRMED, ATTENDED, and valid tickets
-        if (reg.status === "CONFIRMED" || reg.status === "ATTENDED" || !reg.status) {
-          const email = (reg.userEmail || "").toLowerCase().trim();
+        const status = String(reg.status || "").toUpperCase().trim();
+        // Accept CONFIRMED, ATTENDED, ACTIVE, and unassigned status for valid tickets
+        if (status === "CONFIRMED" || status === "ATTENDED" || status === "ACTIVE" || !reg.status) {
+          const email = (reg.userEmail || (reg as any).studentEmail || "").toLowerCase().trim();
           if (email && !seenUserEmails.has(email)) {
             seenUserEmails.add(email);
             confirmedRegistrations.push(reg);
@@ -163,6 +235,11 @@ export function useSendEventUpdate() {
       });
 
       const recipientsCount = confirmedRegistrations.length;
+
+      if (recipientsCount === 0) {
+        throw new Error("No confirmed students are registered for this event.");
+      }
+
       const updateId = `upd_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       let notificationsCreated = 0;
@@ -177,21 +254,32 @@ export function useSendEventUpdate() {
           const batch = writeBatch(db);
 
           chunk.forEach((reg) => {
-            const notifId = `notif_${updateId}_${reg.userId || reg.id}`;
+            const targetStudentId = reg.userId || (reg as any).studentUid || reg.id;
+            const targetStudentEmail = reg.userEmail || (reg as any).studentEmail || "";
+            const notifId = `notif_${updateId}_${targetStudentId}`;
             const notifRef = doc(db, "notifications", notifId);
 
-            batch.set(notifRef, {
+            const notifPayload = {
               id: notifId,
-              recipientUid: reg.userId || reg.studentUid || "",
-              recipientEmail: reg.userEmail,
+              notificationId: notifId,
+              recipientUserId: targetStudentId,
+              recipientUid: targetStudentId,
+              recipientEmail: targetStudentEmail,
+              recipientRole: "student",
               eventId,
               eventTitle,
+              eventName: eventTitle,
               eventUpdateId: updateId,
-              type: "EVENT_UPDATED",
+              senderUserId: senderId,
+              senderUid: senderId,
+              senderRole: "FACULTY",
+              senderName,
+              type: "EVENT_UPDATE",
               title: subject.trim(),
+              subject: subject.trim(),
               message: message.trim(),
               body: message.trim(),
-              link: `/events/${eventId}`,
+              link: `/events/${eventId}#updates`,
               data: {
                 eventId,
                 eventTitle,
@@ -201,26 +289,19 @@ export function useSendEventUpdate() {
                 subject: subject.trim(),
               },
               read: false,
+              isRead: false,
               priority,
+              inAppStatus: "sent",
+              emailStatus: channels.email !== false ? "queued" : "skipped",
               createdAt: serverTimestamp(),
-            });
+            };
 
-            // Also write to user subcollection if userId exists
-            if (reg.userId) {
-              const subNotifRef = doc(db, "notifications", reg.userId, "items", notifId);
-              batch.set(subNotifRef, {
-                id: notifId,
-                eventId,
-                eventTitle,
-                eventUpdateId: updateId,
-                type: "EVENT_UPDATED",
-                title: subject.trim(),
-                body: message.trim(),
-                link: `/events/${eventId}`,
-                read: false,
-                priority,
-                createdAt: serverTimestamp(),
-              });
+            batch.set(notifRef, notifPayload);
+
+            // Also write to user subcollection if student ID exists
+            if (targetStudentId) {
+              const subNotifRef = doc(db, "notifications", targetStudentId, "items", notifId);
+              batch.set(subNotifRef, notifPayload);
             }
 
             notificationsCreated++;
@@ -234,10 +315,13 @@ export function useSendEventUpdate() {
       if (channels.email !== false && recipientsCount > 0) {
         await Promise.all(
           confirmedRegistrations.map(async (reg) => {
+            const studentEmail = reg.userEmail || (reg as any).studentEmail || "";
+            if (!studentEmail) return;
+
             try {
               const emailResult = await sendEventUpdateEmail({
-                recipientName: reg.userDisplayName || reg.userEmail.split("@")[0],
-                recipientEmail: reg.userEmail,
+                recipientName: reg.userDisplayName || (reg as any).studentName || studentEmail.split("@")[0],
+                recipientEmail: studentEmail,
                 eventTitle,
                 eventId,
                 updateSubject: subject.trim(),
@@ -254,7 +338,7 @@ export function useSendEventUpdate() {
                 emailsFailed++;
               }
             } catch (err) {
-              console.error(`[useSendEventUpdate] Email error for ${reg.userEmail}:`, err);
+              console.error(`[useSendEventUpdate] Email dispatch error for ${studentEmail}:`, err);
               emailsFailed++;
             }
           })
@@ -293,6 +377,28 @@ export function useSendEventUpdate() {
       const topUpdateRef = doc(db, "event_updates", updateId);
       await setDoc(topUpdateRef, updateData);
 
+      // Step 6: Record Audit Log Entry
+      try {
+        await addDoc(collection(db, "audit_logs"), {
+          action: "EVENT_BROADCAST_SENT",
+          actorUid: senderId,
+          actorEmail: senderEmail,
+          actorRole: "faculty",
+          targetEventId: eventId,
+          eventTitle,
+          details: {
+            subject: subject.trim(),
+            recipientsCount,
+            notificationsCreated,
+            emailsSent,
+            emailsFailed,
+          },
+          timestamp: serverTimestamp(),
+        });
+      } catch (auditErr) {
+        console.warn("[useSendEventUpdate] Audit log write warning:", auditErr);
+      }
+
       return {
         success: true,
         eventUpdateId: updateId,
@@ -302,17 +408,14 @@ export function useSendEventUpdate() {
         emailsFailed,
       };
     },
-    onSuccess: (result, variables) => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["event_updates", variables.eventId] });
+      queryClient.invalidateQueries({ queryKey: ["event_updates", "all_map"] });
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       queryClient.invalidateQueries({ queryKey: ["student", "unread_updates"] });
-
-      toast.success("Event Update Dispatched", {
-        description: `Notified ${result.recipientsCount} registered student(s) via In-App & Email.`,
-      });
     },
     onError: (err) => {
-      toast.error("Failed to Dispatch Update", {
+      toast.error("Failed to Dispatch Broadcast", {
         description: err.message || "An error occurred while broadcasting.",
       });
     },
@@ -320,7 +423,7 @@ export function useSendEventUpdate() {
 }
 
 /**
- * 3. Hook to track unread event updates for a student (grouped by eventId)
+ * 4. Hook to track unread event updates for a student (grouped by eventId)
  */
 export function useUnreadUpdatesForStudent(studentUid?: string | null, studentEmail?: string | null) {
   return useQuery<{
@@ -369,7 +472,8 @@ export function useUnreadUpdatesForStudent(studentUid?: string | null, studentEm
 
       allUnreadDocs.forEach((d) => {
         const data = d.data();
-        if (data.type === "EVENT_UPDATED" || data.type === "EVENT_UPDATE") {
+        const t = data.type;
+        if (t === "EVENT_UPDATE" || t === "EVENT_UPDATED" || t === "FACULTY_EVENT_UPDATE") {
           const eventId = data.eventId || data.data?.eventId;
           if (eventId) {
             unreadCountByEvent[eventId] = (unreadCountByEvent[eventId] || 0) + 1;
@@ -388,7 +492,7 @@ export function useUnreadUpdatesForStudent(studentUid?: string | null, studentEm
 }
 
 /**
- * 4. Hook to mark all updates for a specific event as read for the current student
+ * 5. Hook to mark all updates for a specific event as read for the current student
  */
 export function useMarkEventUpdatesAsRead() {
   const queryClient = useQueryClient();
@@ -429,7 +533,7 @@ export function useMarkEventUpdatesAsRead() {
 
       const batch = writeBatch(db);
       targetDocs.forEach((d) => {
-        batch.update(d.ref, { read: true });
+        batch.update(d.ref, { read: true, isRead: true, readAt: new Date() });
       });
 
       await batch.commit();
@@ -438,6 +542,7 @@ export function useMarkEventUpdatesAsRead() {
       queryClient.invalidateQueries({ queryKey: ["student", "unread_updates"] });
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       queryClient.invalidateQueries({ queryKey: ["event_updates", variables.eventId] });
+      queryClient.invalidateQueries({ queryKey: ["event_updates", "all_map"] });
     },
   });
 }
