@@ -112,15 +112,14 @@ export const LoginPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // While checking session or loading profile from Firestore, show loading screen
-  if (isLoading || isAuthenticating || (isAuthenticated && (!currentRole || !currentStatus))) {
+  if (isLoading || isAuthenticating) {
     return <AuthLoadingScreen />;
   }
 
   // If already authenticated and profile is resolved with a valid role, redirect to destination portal
   if (isAuthenticated && currentRole && currentStatus) {
     const autoDestination = getPostLoginRoute(currentRole, currentStatus);
-    console.log("[AUTH-10] Route decision:", autoDestination);
-    console.log("[AUTH-11] Navigation destination:", autoDestination);
+    console.log("[AUTH] Redirect destination:", autoDestination);
     return <Navigate to={autoDestination} replace />;
   }
 
@@ -294,22 +293,10 @@ export const LoginPage: React.FC = () => {
 
         toast.success("Faculty registration submitted successfully.", {
           description:
-            "Your faculty registration has been submitted for admin approval. You will be able to sign in after your faculty access is approved.",
+            "Your faculty registration has been submitted for admin approval. You will be able to access the Faculty Portal after approval.",
         });
 
-        navigate("/faculty/application-submitted", {
-          replace: true,
-          state: {
-            fullName: trimmedName,
-            officialEmail: trimmedEmail,
-            employeeId: signUpEmpId.trim().toUpperCase(),
-            department: signUpFacultyDept,
-            school: "School of Technology",
-            designation: signUpDesignation || "Assistant Professor",
-            mobileNumber: signUpMobile.trim() || undefined,
-            submittedAt: new Date().toISOString(),
-          },
-        });
+        navigate("/pending", { replace: true });
       } else {
         // Register Student with authoritative role
         const { role, status } = await signUpWithEmail({
@@ -322,11 +309,11 @@ export const LoginPage: React.FC = () => {
         });
 
         toast.success("Account Created Successfully!", {
-          description: `Welcome to Apollo Event Hub, ${trimmedName}! Signed in as ${role.toUpperCase()}.`,
+          description: `Welcome to Apollo Event Hub, ${trimmedName}!`,
         });
 
         const destination = getPostLoginRoute(role, status);
-        navigate(destination);
+        navigate(destination, { replace: true });
       }
     } catch (err: any) {
       console.warn("[Auth] Sign Up error:", err.code, err.message);

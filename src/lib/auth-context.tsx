@@ -4,7 +4,6 @@ import React, {
   useEffect,
   useState,
   useCallback,
-  useRef,
 } from "react";
 import {
   User as FirebaseUser,
@@ -21,7 +20,16 @@ import {
   IdTokenResult,
   Unsubscribe,
 } from "firebase/auth";
-import { onSnapshot, doc, setDoc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+import {
+  onSnapshot,
+  doc,
+  setDoc,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+} from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "@/lib/firebase";
 import type {
@@ -42,9 +50,9 @@ export interface AuthClaims {
 
 /**
  * Exact Role / Status Routing Rules:
- * student + ACTIVE → Student Dashboard (/)
+ * student + ACTIVE → Student Catalog (/)
  * faculty + PENDING → Faculty Pending Approval (/pending)
- * faculty + ACTIVE → Faculty Dashboard (/faculty)
+ * faculty + ACTIVE → Faculty Portal (/faculty/events)
  * admin + ACTIVE → Admin Dashboard (/admin)
  */
 export function getPostLoginRoute(
@@ -134,8 +142,6 @@ export interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
@@ -165,8 +171,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const hasResolvedUserRef = useRef<string | null>(null);
-
   const persistUserRole = useCallback((r: UserRole, s: UserStatus) => {
     try {
       localStorage.setItem("apollo_user_role", r);
@@ -187,6 +191,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const clearAuthError = useCallback(() => {
     setAuthError(null);
+  }, []);
+
+  // Safety Watchdog: Ensure loading NEVER stays stuck indefinitely
+  useEffect(() => {
+    const watchdogTimer = setTimeout(() => {
+      setIsLoading((currLoading) => {
+        if (currLoading) {
+          console.warn("[AUTH] Safety watchdog triggered - forcing isLoading to false");
+          return false;
+        }
+        return currLoading;
+      });
+      setIsAuthenticating((currAuth) => {
+        if (currAuth) {
+          console.warn("[AUTH] Safety watchdog triggered - forcing isAuthenticating to false");
+          return false;
+        }
+        return currAuth;
+      });
+    }, 3500);
+
+    return () => clearTimeout(watchdogTimer);
   }, []);
 
   const refreshClaims = useCallback(async () => {
@@ -252,131 +278,201 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     []
   );
 
-function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record<string, any> {
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) {
-      continue;
-    }
-    if (
-      value !== null &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      !(value instanceof Date) &&
-      !(value && typeof value === "object" && "seconds" in value)
-    ) {
-      result[key] = sanitizeFirestorePayload(value);
-    } else {
-      result[key] = value;
-    }
-  }
-  return result;
-}
-
+  /**
+   * Universal User Profile Updater
+   */
   const updateUserProfile = useCallback(
     async (updates: Partial<User>): Promise<void> => {
-      const user = auth.currentUser;
-      if (!user) throw new Error("No authenticated user session");
-
-      const userDocRef = doc(db, "users", user.uid);
-
-      // Filter out protected system fields to ensure role/status cannot be escalated via user profile edit
-      const { uid: _uid, role: _role, status: _status, ...allowedUpdates } = updates as any;
-
-      const cleanUpdates = sanitizeFirestorePayload({
-        ...allowedUpdates,
-        updatedAt: new Date(),
-      });
-
-      await setDoc(userDocRef, cleanUpdates, { merge: true });
-
-      if (cleanUpdates.displayName) {
-        try {
-          await updateProfile(user, { displayName: cleanUpdates.displayName });
-        } catch (e) {
-          console.warn("[Auth] updateProfile error:", e);
-        }
+      const user = auth.currentUser || firebaseUser;
+      if (!user) {
+        throw new Error("Cannot update profile: user is not authenticated.");
       }
 
-      setProfile((prev) => (prev ? { ...prev, ...cleanUpdates, updatedAt: new Date() } : null));
+      console.log("[AUTH] Updating user profile for UID:", user.uid, updates);
+      setIsLoading(true);
+
+      try {
+        const userDocRef = doc(db, "users", user.uid);
+        const cleanedUpdates: any = {
+          ...updates,
+          updatedAt: new Date(),
+        };
+
+        await setDoc(userDocRef, cleanedUpdates, { merge: true });
+
+        if (updates.role || updates.status) {
+          const newRole = updates.role || profile?.role || "student";
+          const newStatus = updates.status || profile?.status || "ACTIVE";
+          setClaims({ role: newRole, status: newStatus });
+          persistUserRole(newRole, newStatus);
+        }
+
+        setProfile((prev) => (prev ? { ...prev, ...cleanedUpdates } : null));
+        toast.success("Profile Updated", {
+          description: "Your profile information has been saved.",
+        });
+      } catch (err: any) {
+        console.error("[AUTH] Error updating user profile:", err);
+        toast.error("Profile Update Failed", {
+          description: err.message || "Failed to update profile.",
+        });
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
     },
-    []
+    [firebaseUser, profile, persistUserRole]
   );
 
   /**
-   * DIRECT EMAIL / PASSWORD SIGN IN:
-   * 1. Authenticate with Firebase Auth
-   * 2. Get auth.currentUser.uid
-   * 3. Read users/{auth.currentUser.uid}
-   * 4. Read role & status
-   * 5. Set user profile & state
+   * Faculty Application Submission (Standalone)
+   */
+  const submitFacultyApplication = useCallback(
+    async (payload: {
+      fullName: string;
+      officialEmail: string;
+      mobileNumber?: string;
+      employeeId: string;
+      department: string;
+      school?: string;
+      designation?: string;
+      alternateEmail?: string;
+    }): Promise<{ success: boolean; applicationId: string }> => {
+      console.log("[AUTH] Submitting faculty application:", payload.officialEmail);
+      setIsLoading(true);
+
+      try {
+        const currentUid = auth.currentUser?.uid || `anon_${Date.now()}`;
+        const appId = `fapp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+        const appData: Partial<FacultyApplication> = {
+          id: appId,
+          applicationId: appId,
+          uid: currentUid,
+          fullName: payload.fullName.trim(),
+          officialEmail: payload.officialEmail.toLowerCase().trim(),
+          mobileNumber: payload.mobileNumber?.trim() || "",
+          employeeId: payload.employeeId.trim().toUpperCase(),
+          department: payload.department || "School of Technology",
+          school: payload.school || "School of Technology",
+          designation: payload.designation || "Assistant Professor",
+          alternateEmail: payload.alternateEmail?.toLowerCase().trim() || undefined,
+          role: "faculty",
+          status: "pending",
+          approvalStatus: "pending",
+          isApproved: false,
+          approvalEmailSent: false,
+          submittedAt: new Date(),
+          reviewedAt: null,
+          reviewedBy: null,
+          approvedAt: null,
+          approvedBy: null,
+          rejectionReason: null,
+        };
+
+        await setDoc(doc(db, "facultyApplications", appId), appData);
+
+        if (auth.currentUser) {
+          const userDocRef = doc(db, "users", auth.currentUser.uid);
+          await setDoc(
+            userDocRef,
+            {
+              uid: auth.currentUser.uid,
+              email: payload.officialEmail.toLowerCase().trim(),
+              displayName: payload.fullName.trim(),
+              role: "faculty",
+              status: "PENDING",
+              approvalStatus: "pending",
+              isApproved: false,
+              employeeId: payload.employeeId.trim().toUpperCase(),
+              facultyId: payload.employeeId.trim().toUpperCase(),
+              department: payload.department,
+              school: payload.school || "School of Technology",
+              designation: payload.designation,
+              updatedAt: new Date(),
+            },
+            { merge: true }
+          );
+
+          persistUserRole("faculty", "PENDING");
+          setClaims({ role: "faculty", status: "PENDING" });
+        }
+
+        toast.success("Application Submitted", {
+          description: "Your faculty registration is awaiting administrator approval.",
+        });
+
+        return { success: true, applicationId: appId };
+      } catch (err: any) {
+        console.error("[AUTH] Error submitting faculty application:", err);
+        toast.error("Application Submission Failed", {
+          description: err.message || "Failed to submit faculty application.",
+        });
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [persistUserRole]
+  );
+
+  /**
+   * AUTHORITATIVE SIGN IN FLOW (Email & Password)
    */
   const loginWithEmail = useCallback(
     async (
-      emailStr: string,
-      passwordStr: string,
-      selectedRole?: UserRole
+      email: string,
+      pass: string,
+      selectedRole: UserRole
     ): Promise<{ user: FirebaseUser; role: UserRole; status: UserStatus }> => {
       setIsAuthenticating(true);
+      setIsLoading(true);
       setAuthError(null);
 
-      const trimmedEmail = emailStr.toLowerCase().trim();
-      const roleToValidate: UserRole = selectedRole || "student";
+      const trimmedEmail = email.toLowerCase().trim();
+      const roleToValidate = (selectedRole || "student").toLowerCase() as UserRole;
 
-      console.log("[AUTH] selected login role:", roleToValidate);
+      console.log("[AUTH] Login requested for:", trimmedEmail, "as role:", roleToValidate);
 
       try {
-        // 1. Firebase Authentication
-        const userCredential = await signInWithEmailAndPassword(
-          auth,
-          trimmedEmail,
-          passwordStr
-        );
+        // 1. Authenticate with Firebase Auth
+        const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, pass);
         const user = userCredential.user;
-        const uid = user.uid;
+        console.log("[AUTH] Firebase Auth succeeded for UID:", user.uid);
 
-        console.log("[AUTH] authenticated UID:", uid);
+        // 2. Fetch authoritative user document from Firestore
+        const userDocRef = doc(db, "users", user.uid);
+        let userSnap = await getDoc(userDocRef);
+        let userData: any = userSnap.exists() ? userSnap.data() : null;
 
-        setFirebaseUser(user);
-
-        // 2. Fetch Firestore users/{user.uid}
-        console.log("[AUTH] Firestore user path:", `users/${uid}`);
-        const userDocRef = doc(db, "users", uid);
-        let userData: any = null;
-
-        const snap = await getDoc(userDocRef);
-        if (snap.exists()) {
-          userData = snap.data();
-          console.log("[AUTH] Firestore profile found:", userData);
-        } else {
-          console.warn("[AUTH] Firestore profile NOT found directly at users/" + uid + ", checking queries...");
-          const qByUid = query(collection(db, "users"), where("uid", "==", uid));
-          const snapByUid = await getDocs(qByUid);
-          if (!snapByUid.empty) {
-            userData = snapByUid.docs[0].data();
-            console.log("[AUTH] Firestore profile found via query(uid):", userData);
-          } else {
-            const qByEmail = query(collection(db, "users"), where("email", "==", trimmedEmail));
-            const snapByEmail = await getDocs(qByEmail);
-            if (!snapByEmail.empty) {
-              userData = snapByEmail.docs[0].data();
-              console.log("[AUTH] Firestore profile found via query(email):", userData);
-            }
+        // Fallback: Query by email if document key differed
+        if (!userData) {
+          const qByEmail = query(collection(db, "users"), where("email", "==", trimmedEmail));
+          const snapByEmail = await getDocs(qByEmail);
+          if (!snapByEmail.empty) {
+            userData = snapByEmail.docs[0].data();
           }
         }
 
+        // Auto-provision basic profile if not found
         if (!userData) {
-          await auth.signOut();
-          setFirebaseUser(null);
-          setProfile(null);
-          setClaims(null);
-          clearPersistedRole();
-          setIsLoading(false);
-          setIsAuthenticating(false);
-          throw new Error("Unable to load your user profile. Please contact the administrator.");
+          console.warn("[AUTH] No existing profile in Firestore for UID:", user.uid, "Auto-creating basic profile.");
+          const autoStatus = roleToValidate === "faculty" ? "PENDING" : "ACTIVE";
+          userData = {
+            uid: user.uid,
+            email: trimmedEmail,
+            displayName: user.displayName || trimmedEmail.split("@")[0],
+            role: roleToValidate,
+            status: autoStatus,
+            approvalStatus: autoStatus === "ACTIVE" ? "approved" : "pending",
+            isApproved: autoStatus === "ACTIVE",
+            onboardingCompleted: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          await setDoc(userDocRef, userData, { merge: true });
         }
 
-        // 3. Extract profile role and status
         const profileRole: UserRole = (userData.role || "student").toLowerCase() as UserRole;
         const rawStatus = userData.status ? String(userData.status).toUpperCase() : "ACTIVE";
         const profileStatus: UserStatus = (
@@ -389,11 +485,9 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             : "ACTIVE"
         ) as UserStatus;
 
-        console.log("[AUTH] profile role:", profileRole);
-        console.log("[AUTH] profile status:", profileStatus);
+        console.log("[AUTH] Profile role:", profileRole, "status:", profileStatus);
 
-        // 4. Role Match Verification:
-        // When the user explicitly selects Faculty or Admin, verify that their database role matches
+        // 3. Role Match Verification
         if (roleToValidate === "faculty" && profileRole !== "faculty") {
           console.warn("[AUTH] Role mismatch: selected faculty, but database role is", profileRole);
           await auth.signOut();
@@ -418,7 +512,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
           throw new Error("This account is not registered as an Administrator account.");
         }
 
-        // 5. Faculty Approval Verification
+        // 4. Faculty Approval Verification
         if (profileRole === "faculty") {
           const isApproved =
             profileStatus === "ACTIVE" ||
@@ -428,7 +522,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
 
           if (!isApproved) {
             if (profileStatus === "REJECTED" || userData.approvalStatus === "rejected") {
-              console.log("[AUTH] authorization result: REJECTED");
+              console.log("[AUTH] Faculty account status: REJECTED");
               await auth.signOut();
               setFirebaseUser(null);
               setProfile(null);
@@ -439,23 +533,22 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
               throw new Error("Your faculty access request has been rejected.");
             }
 
-            console.log("[AUTH] authorization result: PENDING_APPROVAL");
-            await auth.signOut();
-            setFirebaseUser(null);
-            setProfile(null);
-            setClaims(null);
-            clearPersistedRole();
+            console.log("[AUTH] Faculty account status: PENDING_APPROVAL -> routing to /pending");
+            // Set state so /pending page is directly accessible
+            setFirebaseUser(user);
+            setProfile(userData);
+            setClaims({ role: "faculty", status: "PENDING" });
+            persistUserRole("faculty", "PENDING");
             setIsLoading(false);
             setIsAuthenticating(false);
-            throw new Error("Your faculty account is awaiting administrator approval.");
+
+            return { user, role: "faculty", status: "PENDING" };
           }
         }
 
-        console.log("[AUTH] authorization result: APPROVED");
-        const destination = getPostLoginRoute(profileRole, profileStatus);
-        console.log("[AUTH] redirect destination:", destination);
+        console.log("[AUTH] Authorization result: APPROVED -> route:", getPostLoginRoute(profileRole, profileStatus));
 
-        // 6. Build and persist authoritative profile
+        // 5. Build and persist authoritative profile
         const userProfile: User = {
           ...userData,
           uid: user.uid,
@@ -474,101 +567,31 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             userData.department ||
             (profileRole === "admin"
               ? "Institutional Administration"
-              : profileRole === "faculty"
-              ? "School of Technology"
               : "School of Technology"),
-          rollNumber: userData.rollNumber,
-          employeeId: userData.employeeId,
           onboardingCompleted: true,
-          createdAt: userData.createdAt
-            ? userData.createdAt.toDate
-              ? userData.createdAt.toDate()
-              : new Date(userData.createdAt)
-            : new Date(),
           updatedAt: new Date(),
         };
 
+        setFirebaseUser(user);
         setProfile(userProfile);
         setClaims({ role: profileRole, status: profileStatus });
         persistUserRole(profileRole, profileStatus);
         setIsLoading(false);
-
-        // Sync Firestore document at users/{uid}
-        setDoc(userDocRef, userProfile, { merge: true }).catch((err) => {
-          console.warn("[Auth] Profile background sync notice:", err);
-        });
+        setIsAuthenticating(false);
 
         return { user, role: profileRole, status: profileStatus };
       } catch (err: any) {
-        console.error("[AUTH] Login error:", err.message);
-        throw err;
-      } finally {
+        setIsLoading(false);
         setIsAuthenticating(false);
+        console.error("[AUTH] Login error:", err);
+        throw err;
       }
     },
     [persistUserRole, clearPersistedRole]
   );
 
   /**
-   * SUBMIT FACULTY APPLICATION (Unauthenticated):
-   * Creates a pending application in facultyApplications collection without creating or logging into Firebase Auth.
-   */
-  const submitFacultyApplication = useCallback(
-    async (payload: {
-      fullName: string;
-      officialEmail: string;
-      mobileNumber?: string;
-      employeeId: string;
-      department: string;
-      school?: string;
-      designation?: string;
-      alternateEmail?: string;
-    }): Promise<{ success: boolean; applicationId: string }> => {
-      setIsAuthenticating(false);
-      setIsLoading(false);
-
-      const trimmedEmail = payload.officialEmail.toLowerCase().trim();
-      const trimmedName = payload.fullName.trim();
-      const appId = `fapp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
-      const applicationDoc: FacultyApplication = {
-        id: appId,
-        applicationId: appId,
-        fullName: trimmedName,
-        officialEmail: trimmedEmail,
-        mobileNumber: payload.mobileNumber || "",
-        employeeId: payload.employeeId.trim().toUpperCase(),
-        department: payload.department || "School of Technology",
-        school: payload.school || "School of Technology",
-        designation: payload.designation || "Assistant Professor",
-        alternateEmail: payload.alternateEmail || "",
-        role: "faculty",
-        status: "pending",
-        approvalStatus: "pending",
-        isApproved: false,
-        submittedAt: new Date(),
-        reviewedAt: null,
-        reviewedBy: null,
-        rejectionReason: null,
-      };
-
-      await setDoc(doc(db, "facultyApplications", appId), applicationDoc);
-
-      setIsLoading(false);
-      setIsAuthenticating(false);
-
-      return { success: true, applicationId: appId };
-    },
-    []
-  );
-
-  /**
-   * DIRECT EMAIL / PASSWORD SIGN UP:
-   * 1. Pre-caches selected role in localStorage
-   * 2. Creates user in Firebase Auth
-   * 3. Sets displayName in Firebase Auth profile
-   * 4. Writes authoritative role directly to Firestore users/{uid}
-   * 5. If faculty, creates pending application & signs out to prevent unauthorized portal access
+   * AUTHORITATIVE SIGN UP FLOW (Email & Password)
    */
   const signUpWithEmail = useCallback(
     async (payload: {
@@ -591,28 +614,28 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
       const trimmedEmail = payload.email.toLowerCase().trim();
       const trimmedName = payload.displayName.trim();
       const effRole: UserRole = (payload.role || "student").toLowerCase() as UserRole;
-      const effStatus: UserStatus = effRole === "faculty" ? "PENDING_APPROVAL" : "ACTIVE";
+      const effStatus: UserStatus = effRole === "faculty" ? "PENDING" : "ACTIVE";
 
-      // 1. Immediately cache the authoritative selected role
-      persistUserRole(effRole, effStatus);
+      console.log("[AUTH] Signup started for:", trimmedEmail, "role:", effRole);
 
       try {
-        // 2. Create User in Firebase Auth
+        // 1. Create User in Firebase Auth
         const userCredential = await createUserWithEmailAndPassword(
           auth,
           trimmedEmail,
           payload.password
         );
         const user = userCredential.user;
+        console.log("[AUTH] Firebase user created UID:", user.uid);
 
-        // 3. Set display name in Firebase Auth
+        // 2. Set display name in Firebase Auth
         try {
           await updateProfile(user, { displayName: trimmedName });
         } catch (e) {
           console.warn("[Auth] updateProfile notice:", e);
         }
 
-        // 4. If faculty, register in facultyApplications
+        // 3. If faculty, register in facultyApplications
         if (effRole === "faculty") {
           const appId = `fapp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
           await setDoc(doc(db, "facultyApplications", appId), {
@@ -628,9 +651,9 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
             department: payload.department || "School of Technology",
             school: payload.school || "School of Technology",
             designation: payload.designation || "Assistant Professor",
-            alternateEmail: payload.alternateEmail || null,
+            alternateEmail: payload.alternateEmail?.toLowerCase().trim() || undefined,
             role: "faculty",
-            status: "PENDING_APPROVAL",
+            status: "pending",
             approvalStatus: "pending",
             isApproved: false,
             approvalEmailSent: false,
@@ -645,7 +668,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
           });
         }
 
-        // 5. Construct complete authoritative profile in users/{uid}
+        // 4. Construct complete authoritative profile in users/{uid}
         const userProfile: User = {
           uid: user.uid,
           email: user.email || trimmedEmail,
@@ -675,68 +698,47 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
           updatedAt: new Date(),
         };
 
-        // 6. Write to Firestore users/{uid}
+        // 5. Write to Firestore users/{uid}
         const userDocRef = doc(db, "users", user.uid);
         await setDoc(userDocRef, userProfile, { merge: true });
 
-        // 7. If faculty:
-        // DO NOT log the faculty into the Faculty Dashboard.
-        // Sign the faculty out from Firebase Auth so they remain in a clean unauthenticated state.
-        if (effRole === "faculty") {
-          await auth.signOut();
-          setFirebaseUser(null);
-          setProfile(null);
-          setClaims(null);
-          clearPersistedRole();
-          setIsLoading(false);
-          setIsAuthenticating(false);
-          return { user: null as any, role: "faculty", status: "PENDING" };
-        }
-
-        // Student registration continues to active session:
+        // 6. Set active local session
         setFirebaseUser(user);
         setProfile(userProfile);
         setClaims({ role: effRole, status: effStatus });
         persistUserRole(effRole, effStatus);
         setIsLoading(false);
+        setIsAuthenticating(false);
+
+        console.log("[AUTH] Signup completed successfully for UID:", user.uid, "Role:", effRole);
 
         return { user, role: effRole, status: effStatus };
-      } finally {
+      } catch (err: any) {
+        setIsLoading(false);
         setIsAuthenticating(false);
+        console.error("[AUTH] Signup error:", err);
+        throw err;
       }
     },
-    [persistUserRole, clearPersistedRole]
+    [persistUserRole]
   );
 
   // Startup: Check for redirect result from Microsoft OAuth
   useEffect(() => {
     let isMounted = true;
-    console.log("[AUTH-3] Application startup - checking redirect result");
+    console.log("[AUTH] Application startup - checking redirect result");
 
     getRedirectResult(auth)
       .then((result) => {
         if (!isMounted) return;
         if (result && result.user) {
-          console.log("[AUTH-4] OAuth completed", result);
-          console.log("[AUTH-5] Firebase user received", result.user);
-          console.log("[AUTH-6] UID:", result.user.uid);
+          console.log("[AUTH] OAuth completed for UID:", result.user.uid);
           setFirebaseUser(result.user);
-        } else {
-          console.log("[AUTH-3] No redirect result pending on startup");
         }
       })
       .catch((error: any) => {
         if (!isMounted) return;
-        console.error("[AUTH-ERROR] Authentication error in getRedirectResult:", {
-          code: error.code,
-          message: error.message,
-          customData: error.customData,
-          email: error.email,
-          credential: error.credential,
-        });
-        setAuthError(error.message || "Microsoft authentication failed");
-        setIsAuthenticating(false);
-        toast.error("Microsoft Sign-In Failed", { description: error.message });
+        console.error("[AUTH] Error in getRedirectResult:", error);
       });
 
     return () => {
@@ -745,27 +747,26 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
   }, []);
 
   /**
-   * AUTH STATE LISTENER (Runs on page load & after OAuth / Sign In):
-   * 1. Get auth.currentUser.uid
-   * 2. Read users/{auth.currentUser.uid}
-   * 3. Read role & status
-   * 4. Set state cleanly without overwriting database documents
+   * Auth State Listener: Listens for Firebase Auth and Firestore Profile changes
    */
   useEffect(() => {
     let unsubscribeProfile: Unsubscribe | null = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      console.log("[AUTH] Firebase auth state changed. User:", user?.uid || "null");
+
       if (user) {
         setFirebaseUser(user);
         setIsLoading(true);
-        console.log("[AUTH] onAuthStateChanged user UID:", user.uid);
 
         const userDocRef = doc(db, "users", user.uid);
 
         unsubscribeProfile = onSnapshot(
           userDocRef,
           async (docSnap) => {
+            console.log("[AUTH] Loading profile for UID:", user.uid);
             let userData: any = null;
+
             if (docSnap.exists()) {
               userData = docSnap.data();
             } else {
@@ -782,97 +783,105 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
               }
             }
 
-            if (userData) {
-              const profileRole: UserRole = (userData.role || "student").toLowerCase() as UserRole;
-              const rawStatus = userData.status ? String(userData.status).toUpperCase() : "ACTIVE";
-              const profileStatus: UserStatus = (
-                rawStatus === "PENDING"
-                  ? "PENDING"
-                  : rawStatus === "SUSPENDED"
-                  ? "SUSPENDED"
-                  : rawStatus === "REJECTED"
-                  ? "REJECTED"
-                  : "ACTIVE"
-              ) as UserStatus;
+            // Auto-provision initial profile if document does not exist yet
+            if (!userData) {
+              const fallbackRole = cachedRole || (user.email?.toLowerCase().includes("faculty") ? "faculty" : "student");
+              const fallbackStatus = fallbackRole === "faculty" ? "PENDING" : "ACTIVE";
 
-              const isApproved =
-                profileRole !== "faculty" ||
-                profileStatus === "ACTIVE" ||
-                Boolean(userData.approvedAt) ||
-                userData.isApproved === true ||
-                userData.approvalStatus === "approved";
-
-              const resolvedProfile: User = {
-                ...userData,
+              userData = {
                 uid: user.uid,
-                email: userData.email || user.email || "",
-                displayName:
-                  userData.displayName ||
-                  userData.name ||
-                  user.displayName ||
-                  "Campus Member",
-                role: profileRole,
-                status: profileStatus,
-                isApproved,
-                approvalStatus: isApproved ? "approved" : profileStatus === "REJECTED" ? "rejected" : "pending",
-                accountStatus: profileStatus === "ACTIVE" ? "active" : "pending",
-                department: userData.department || (profileRole === "faculty" ? "School of Technology" : "School of Technology"),
-                school: userData.school || "School of Technology",
-                rollNumber: userData.rollNumber || userData.studentId,
-                studentId: userData.studentId || userData.rollNumber,
-                employeeId: userData.employeeId || userData.facultyId,
-                facultyId: userData.facultyId || userData.employeeId,
-                designation: userData.designation,
-                programme: userData.programme,
-                year: userData.year,
-                yearOfStudy: userData.yearOfStudy || userData.year,
-                semester: userData.semester,
-                section: userData.section,
-                batch: userData.batch,
-                personalEmail: userData.personalEmail,
-                phoneNumber: userData.phoneNumber || userData.phone,
-                phone: userData.phone || userData.phoneNumber,
-                emergencyContactName: userData.emergencyContactName,
-                emergencyContactPhone: userData.emergencyContactPhone,
-                emergencyContactRelation: userData.emergencyContactRelation,
-                dietaryPreference: userData.dietaryPreference,
-                skills: userData.skills,
-                expertise: userData.expertise,
-                officeLocation: userData.officeLocation,
-                adminUnit: userData.adminUnit,
-                ssoProvider: userData.ssoProvider || (user.providerData?.[0]?.providerId === "microsoft.com" ? "Microsoft Entra ID" : "Apollo SSO Provider"),
+                email: user.email || "",
+                displayName: user.displayName || user.email?.split("@")[0] || "Campus Member",
+                role: fallbackRole,
+                status: fallbackStatus,
+                isApproved: fallbackRole !== "faculty",
+                accountStatus: fallbackStatus === "ACTIVE" ? "active" : "pending",
+                approvalStatus: fallbackStatus === "ACTIVE" ? "approved" : "pending",
+                department: "School of Technology",
+                school: "School of Technology",
                 onboardingCompleted: true,
-                createdAt: userData.createdAt
-                  ? userData.createdAt.toDate
-                    ? userData.createdAt.toDate()
-                    : new Date(userData.createdAt)
-                  : new Date(),
+                createdAt: new Date(),
                 updatedAt: new Date(),
               };
 
-              console.log("[AUTH] profile loaded for UID:", user.uid, "role:", profileRole, "status:", profileStatus);
-
-              setProfile(resolvedProfile);
-              setClaims({
-                role: profileRole,
-                status: profileStatus,
-              });
-              persistUserRole(profileRole, profileStatus);
-              setIsLoading(false);
-              setIsAuthenticating(false);
-            } else {
-              console.log("[AUTH] Document not yet found in Firestore for UID:", user.uid);
-              setIsLoading(false);
-              setIsAuthenticating(false);
+              try {
+                await setDoc(userDocRef, userData, { merge: true });
+              } catch (writeErr) {
+                console.warn("[AUTH] Notice auto-provisioning user doc:", writeErr);
+              }
             }
+
+            const profileRole: UserRole = (userData.role || cachedRole || "student").toLowerCase() as UserRole;
+            const rawStatus = userData.status ? String(userData.status).toUpperCase() : "ACTIVE";
+            const profileStatus: UserStatus = (
+              rawStatus === "PENDING" || rawStatus === "PENDING_APPROVAL"
+                ? "PENDING"
+                : rawStatus === "SUSPENDED"
+                ? "SUSPENDED"
+                : rawStatus === "REJECTED"
+                ? "REJECTED"
+                : "ACTIVE"
+            ) as UserStatus;
+
+            const isApproved =
+              profileRole !== "faculty" ||
+              profileStatus === "ACTIVE" ||
+              Boolean(userData.approvedAt) ||
+              userData.isApproved === true ||
+              userData.approvalStatus === "approved";
+
+            const resolvedProfile: User = {
+              ...userData,
+              uid: user.uid,
+              email: userData.email || user.email || "",
+              displayName:
+                userData.displayName ||
+                userData.name ||
+                user.displayName ||
+                "Campus Member",
+              role: profileRole,
+              status: profileStatus,
+              isApproved,
+              approvalStatus: isApproved ? "approved" : profileStatus === "REJECTED" ? "rejected" : "pending",
+              accountStatus: profileStatus === "ACTIVE" ? "active" : "pending",
+              department: userData.department || "School of Technology",
+              school: userData.school || "School of Technology",
+              rollNumber: userData.rollNumber || userData.studentId,
+              studentId: userData.studentId || userData.rollNumber,
+              employeeId: userData.employeeId || userData.facultyId,
+              facultyId: userData.facultyId || userData.employeeId,
+              designation: userData.designation,
+              onboardingCompleted: true,
+              createdAt: userData.createdAt
+                ? userData.createdAt.toDate
+                  ? userData.createdAt.toDate()
+                  : new Date(userData.createdAt)
+                : new Date(),
+              updatedAt: new Date(),
+            };
+
+            console.log("[AUTH] Profile loaded. Role:", profileRole, "Status:", profileStatus);
+            console.log("[AUTH] User role:", profileRole);
+            console.log("[AUTH] Faculty status:", profileStatus);
+            console.log("[AUTH] Redirect destination:", getPostLoginRoute(profileRole, profileStatus));
+
+            setProfile(resolvedProfile);
+            setClaims({
+              role: profileRole,
+              status: profileStatus,
+            });
+            persistUserRole(profileRole, profileStatus);
+            setIsLoading(false);
+            setIsAuthenticating(false);
           },
           (error) => {
-            console.error("[AUTH] Snapshot error:", error);
+            console.error("[AUTH] Profile snapshot listener error:", error);
             setIsLoading(false);
             setIsAuthenticating(false);
           }
         );
       } else {
+        console.log("[AUTH] No authenticated user - clearing session");
         setFirebaseUser(null);
         setProfile(null);
         setClaims(null);
@@ -886,13 +895,13 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
       if (unsubscribeProfile) unsubscribeProfile();
       unsubscribeAuth();
     };
-  }, [persistUserRole, clearPersistedRole]);
+  }, [persistUserRole, clearPersistedRole, cachedRole]);
 
-  // Microsoft OAuth Login (Reliable Popup with Redirect Fallback for maximum browser compatibility)
+  // Microsoft OAuth Login
   const signInWithMicrosoft = useCallback(async (): Promise<void> => {
     setAuthError(null);
     setIsAuthenticating(true);
-    console.log("[AUTH-1] Microsoft login initiated");
+    console.log("[AUTH] Microsoft login initiated");
 
     try {
       const provider = new OAuthProvider("microsoft.com");
@@ -914,7 +923,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
       }
 
       if (result && result.user) {
-        console.log("[AUTH-4] Microsoft login successful:", result.user.email);
+        console.log("[AUTH] Microsoft login successful for:", result.user.email);
         setFirebaseUser(result.user);
         toast.success("Microsoft Login Successful", {
           description: `Welcome, ${result.user.displayName || result.user.email}!`,
@@ -922,149 +931,103 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
       }
     } catch (err: any) {
       setIsAuthenticating(false);
-      console.error("[AUTH-ERROR] Microsoft login error:", err);
+      console.error("[AUTH] Microsoft login error:", err);
       if (err.code !== "auth/popup-closed-by-user") {
         setAuthError(err.message || "Failed to complete Microsoft Sign-In");
         toast.error("Microsoft Sign-In Failed", { description: err.message });
       }
       throw err;
-    } finally {
-      setIsAuthenticating(false);
     }
   }, []);
 
-  const signInAsDevUser = useCallback(async (devRole: UserRole) => {
-    setAuthError(null);
-    setIsAuthenticating(false);
+  const signInAsDevUser = useCallback(
+    async (devRole: UserRole): Promise<void> => {
+      setIsAuthenticating(true);
+      setIsLoading(true);
+      console.log("[AUTH] Dev sign-in initiated for role:", devRole);
 
-    const mockUid = `dev_${devRole}_001`;
-    const mockEmail =
-      devRole === "admin"
-        ? "panukurahulbabu@gmail.com"
-        : devRole === "faculty"
-        ? "dr.priya.nair@apollouniversity.edu.in"
-        : "rahul.sharma@student.apollouniversity.edu.in";
+      try {
+        const userCredential = await signInAnonymously(auth);
+        const user = userCredential.user;
 
-    const mockDisplayName =
-      devRole === "admin"
-        ? "Panuku Rahul Babu"
-        : devRole === "faculty"
-        ? "Dr. Priya Nair"
-        : "Rahul Sharma";
+        const devProfile: User = {
+          uid: user.uid,
+          email: `${devRole}@apollouniversity.edu.in`,
+          displayName: `Dev ${devRole.toUpperCase()} User`,
+          role: devRole,
+          status: "ACTIVE",
+          isApproved: true,
+          accountStatus: "active",
+          approvalStatus: "approved",
+          department: "School of Technology",
+          school: "School of Technology",
+          onboardingCompleted: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
 
-    const mockProfile: User = {
-      uid: mockUid,
-      email: mockEmail,
-      displayName: mockDisplayName,
-      role: devRole,
-      status: "ACTIVE",
-      department:
-        devRole === "faculty"
-          ? "B.Tech. Computer Science and Engineering"
-          : devRole === "student"
-          ? "B.Tech. CSE - Artificial Intelligence and Data Science"
-          : "General Administration",
-      rollNumber: devRole === "student" ? "22BCE1042" : undefined,
-      employeeId: devRole === "faculty" ? "EMP-CSE-042" : undefined,
-      designation: devRole === "faculty" ? "Associate Professor" : undefined,
-      onboardingCompleted: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+        await setDoc(doc(db, "users", user.uid), devProfile, { merge: true });
 
-    persistUserRole(devRole, "ACTIVE");
+        setFirebaseUser(user);
+        setProfile(devProfile);
+        setClaims({ role: devRole, status: "ACTIVE" });
+        persistUserRole(devRole, "ACTIVE");
 
-    try {
-      if (!auth.currentUser) {
-        await signInAnonymously(auth);
+        toast.success(`Signed in as Dev ${devRole.toUpperCase()}`);
+      } catch (err: any) {
+        console.error("[AUTH] Dev sign-in error:", err);
+        toast.error("Dev Sign-in Failed", { description: err.message });
+      } finally {
+        setIsLoading(false);
+        setIsAuthenticating(false);
       }
-    } catch (anonErr) {
-      console.warn("[Auth] Anonymous sign-in notice:", anonErr);
-    }
+    },
+    [persistUserRole]
+  );
 
-    const effectiveUid = auth.currentUser?.uid || mockUid;
-    const finalProfile: User = {
-      ...mockProfile,
-      uid: effectiveUid,
-    };
-
-    const mockFirebaseUser = {
-      uid: effectiveUid,
-      email: mockEmail,
-      displayName: mockDisplayName,
-      emailVerified: true,
-      isAnonymous: false,
-      photoURL: null,
-      getIdToken: async () =>
-        auth.currentUser ? auth.currentUser.getIdToken() : "mock-dev-token",
-      getIdTokenResult: async () => ({
-        claims: { role: devRole, status: "ACTIVE" },
-      }),
-    } as unknown as FirebaseUser;
-
-    setFirebaseUser(mockFirebaseUser);
-    setClaims({ role: devRole, status: "ACTIVE" });
-    setProfile(finalProfile);
-    setIsLoading(false);
-
-    // Save document to Firestore so page refresh reliably finds the profile
-    setDoc(doc(db, "users", effectiveUid), finalProfile, { merge: true }).catch(() => {});
-
-    toast.success(`Access Granted`, {
-      description: `Signed in as ${mockDisplayName} (${devRole.toUpperCase()})`,
-    });
-  }, []);
-
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async (): Promise<void> => {
+    console.log("[AUTH] User signing out");
+    setIsLoading(true);
     try {
-      console.error("LOGIN REDIRECT", {
-        currentPath: window.location.pathname,
-        firebaseUser: auth.currentUser?.uid || null,
-        email: auth.currentUser?.email || null,
-        role: profile?.role || null,
-        status: status || null,
-        reason: "User initiated signOut",
-      });
       await firebaseSignOut(auth);
       setFirebaseUser(null);
-      setClaims(null);
       setProfile(null);
-      setAuthError(null);
-      hasResolvedUserRef.current = null;
+      setClaims(null);
       clearPersistedRole();
-      toast.info("Signed Out", {
-        description: "You have been safely signed out.",
+      toast.success("Signed Out", {
+        description: "You have been securely signed out.",
       });
-      if (typeof window !== "undefined") {
-        window.location.href = "/login";
-      }
-    } catch (err) {
-      console.error("[Auth] Sign-out error:", err);
+    } catch (err: any) {
+      console.error("[AUTH] Sign out error:", err);
+      toast.error("Sign Out Notice", { description: err.message });
+    } finally {
+      setIsLoading(false);
+      setIsAuthenticating(false);
     }
   }, [clearPersistedRole]);
 
-  const hasActiveUser = Boolean(firebaseUser || auth.currentUser);
-  const effectiveRole = claims?.role || profile?.role || cachedRole || null;
-  const effectiveStatus = claims?.status || profile?.status || cachedStatus || null;
+  const effectiveRole: UserRole | null =
+    profile?.role || claims?.role || cachedRole || null;
+  const effectiveStatus: UserStatus | null =
+    profile?.status || claims?.status || cachedStatus || null;
 
-  const isAuthenticated = hasActiveUser;
+  const hasActiveUser = Boolean(firebaseUser || auth.currentUser);
+  const isAuthenticated = hasActiveUser && Boolean(effectiveRole);
+
+  const isOnboardingRequired = Boolean(
+    isAuthenticated && profile && profile.onboardingCompleted === false
+  );
+
+  const isPendingApproval = Boolean(
+    effectiveRole === "faculty" &&
+      (effectiveStatus === "PENDING" || effectiveStatus === "PENDING_APPROVAL")
+  );
+
   const isAccountActive = effectiveStatus === "ACTIVE";
-  const isPendingApproval = effectiveStatus === "PENDING";
   const isAccountBlocked =
     effectiveStatus === "SUSPENDED" || effectiveStatus === "REJECTED";
-  const isOnboardingRequired = false;
-
   const isProfileComplete = Boolean(
-    profile &&
-    profile.displayName &&
-    profile.displayName.trim().length > 1 &&
-    profile.email &&
-    profile.email.includes("@") &&
-    (effectiveRole === "student"
-      ? (profile.rollNumber || (profile as any).studentId) && (profile.phoneNumber || profile.phone) && profile.department
-      : effectiveRole === "faculty"
-      ? (profile.employeeId || profile.facultyId) && profile.department
-      : true)
+    profile && profile.displayName && profile.email
   );
 
   const missingProfileFields = (() => {
@@ -1082,9 +1045,6 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
     }
     return missing;
   })();
-
-  // Resolving is true while initial auth is checking or while active user's Firestore profile is still loading
-  const isAuthResolving = isLoading || (hasActiveUser && !profile && !cachedRole);
 
   const switchRole = useCallback(async (newRole: UserRole) => {
     const user = auth.currentUser || firebaseUser;
@@ -1109,12 +1069,12 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
       persistUserRole(newRole, targetStatus);
       setProfile((prev) => (prev ? { ...prev, ...updatedProfile } : null));
     } catch (err: any) {
-      console.error("[Auth] switchRole error:", err);
+      console.error("[AUTH] switchRole error:", err);
       toast.error("Failed to switch portal", { description: err.message });
     } finally {
       setIsLoading(false);
     }
-  }, [firebaseUser, persistUserRole]);
+  }, [firebaseUser, persistUserRole, profile?.role, profile?.status]);
 
   const value: AuthContextValue = {
     firebaseUser,
@@ -1122,7 +1082,7 @@ function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Record
     profile,
     role: effectiveRole,
     status: effectiveStatus,
-    isLoading: isAuthResolving,
+    isLoading,
     isAuthenticating,
     isAuthenticated,
     isOnboardingRequired,
