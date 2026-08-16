@@ -37,7 +37,14 @@ import {
   Save,
   Loader2,
 } from "lucide-react";
-import { DEPARTMENTS, ACADEMIC_YEARS, ACADEMIC_SECTIONS, FACULTY_DESIGNATIONS } from "@/types";
+import {
+  DEPARTMENTS,
+  BTECH_SPECIALIZATIONS,
+  BTECH_FACULTY_DEPARTMENTS,
+  ACADEMIC_YEARS,
+  ACADEMIC_SECTIONS,
+  FACULTY_DESIGNATIONS,
+} from "@/types";
 import { toast } from "sonner";
 
 export const ProfilePage: React.FC = () => {
@@ -425,14 +432,14 @@ export const ProfilePage: React.FC = () => {
 
                 <div className="space-y-1.5">
                   <Label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <Building2 className="w-3 h-3 text-slate-400" /> Department / School *
+                    <Building2 className="w-3 h-3 text-slate-400" /> {role === "student" ? "B.Tech Branch / Specialization" : "B.Tech Department"} *
                   </Label>
                   <Select value={department} onValueChange={setDepartment}>
                     <SelectTrigger className="h-9 text-xs">
                       <SelectValue placeholder="Select Department" />
                     </SelectTrigger>
                     <SelectContent>
-                      {DEPARTMENTS.map((dept) => (
+                      {(role === "student" ? BTECH_SPECIALIZATIONS : role === "faculty" ? BTECH_FACULTY_DEPARTMENTS : DEPARTMENTS).map((dept) => (
                         <SelectItem key={dept} value={dept} className="text-xs">
                           {dept}
                         </SelectItem>

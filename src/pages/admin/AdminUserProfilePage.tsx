@@ -20,6 +20,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { DEPARTMENTS } from "@/types";
 import { toast } from "sonner";
 import { safeFormatDate } from "@/lib/utils";
 
@@ -200,13 +208,24 @@ export const AdminUserProfilePage: React.FC = () => {
 
             <div className="space-y-4 text-xs">
               <div className="space-y-1.5">
-                <Label className="font-bold text-slate-700">Department</Label>
-                <Input
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  placeholder="e.g. Computer Science & Engineering"
-                  className="h-10 text-xs"
-                />
+                <Label className="font-bold text-slate-700">B.Tech Department / Specialization</Label>
+                <Select value={department} onValueChange={setDepartment}>
+                  <SelectTrigger className="h-10 text-xs">
+                    <SelectValue placeholder="Select B.Tech Department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DEPARTMENTS.map((dept) => (
+                      <SelectItem key={dept} value={dept} className="text-xs">
+                        {dept}
+                      </SelectItem>
+                    ))}
+                    {department && !DEPARTMENTS.includes(department as any) && (
+                      <SelectItem value={department} className="text-xs font-bold text-amber-600">
+                        {department} (Existing)
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-1.5">

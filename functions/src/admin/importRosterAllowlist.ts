@@ -63,6 +63,20 @@ export const importRosterAllowlist = onCall(
           continue;
         }
 
+        const FORBIDDEN_NON_BTECH = [
+          "school of management",
+          "school of health sciences",
+          "general administration",
+          "management",
+          "health sciences",
+        ];
+        const dept = (entry.department || "").toLowerCase();
+        if (FORBIDDEN_NON_BTECH.some((f) => dept.includes(f))) {
+          skippedCount++;
+          errors.push({ email: entry.email, reason: `Non-B.Tech department "${entry.department}" is not permitted` });
+          continue;
+        }
+
         const normalizedEmail = entry.email.trim().toLowerCase();
         const emailKey = normalizedEmail.replace(/[@.]/g, "_");
         const docRef = db.collection("allowlist").doc(emailKey);
@@ -73,7 +87,7 @@ export const importRosterAllowlist = onCall(
             email: normalizedEmail,
             name: entry.name.trim(),
             role: entry.role,
-            department: entry.department || "General",
+            department: entry.department || (entry.role === "faculty" ? "Department of Computer Science & Engineering" : "B.Tech. Computer Science and Engineering"),
             rollNumber: entry.rollNumber || null,
             employeeId: entry.employeeId || null,
             year: entry.year || null,

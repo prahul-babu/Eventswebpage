@@ -10,7 +10,8 @@ import {
   RequestAccessFormValues,
 } from "@/lib/schemas/user";
 import {
-  DEPARTMENTS,
+  BTECH_FACULTY_DEPARTMENTS,
+  BTECH_SPECIALIZATIONS,
   ACADEMIC_YEARS,
   ACADEMIC_SECTIONS,
   FACULTY_DESIGNATIONS,
@@ -90,7 +91,7 @@ export const OnboardingPage: React.FC = () => {
     defaultValues: {
       requestedRole: "student",
       displayName: firebaseUser.displayName || "",
-      department: "Computer Science & Engineering",
+      department: "B.Tech. Computer Science and Engineering",
       phoneNumber: "",
       rollNumber: "",
       year: "1st Year (B.Tech / UG)",
@@ -103,6 +104,12 @@ export const OnboardingPage: React.FC = () => {
   const handleRoleSelect = (role: "student" | "faculty") => {
     setSelectedRole(role);
     setValue("requestedRole", role);
+    setValue(
+      "department",
+      role === "faculty"
+        ? "Department of Computer Science & Engineering"
+        : "B.Tech. Computer Science and Engineering"
+    );
   };
 
   const handleContinueToStep2 = () => {
@@ -321,27 +328,30 @@ export const OnboardingPage: React.FC = () => {
 
                   {/* Department */}
                   <div className="space-y-1.5 sm:col-span-2">
-                    <Label htmlFor="department" className="flex items-center gap-1.5">
+                    <Label htmlFor="department" className="flex items-center gap-1.5 font-bold text-xs text-slate-700">
                       <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Department / School</span>
+                      <span>{selectedRole === "student" ? "B.Tech Branch / Specialization" : "B.Tech Department"} *</span>
                     </Label>
                     <Controller
                       name="department"
                       control={control}
-                      render={({ field }) => (
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <SelectTrigger id="department">
-                            <SelectValue placeholder="Select Department" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {DEPARTMENTS.map((dept) => (
-                              <SelectItem key={dept} value={dept}>
-                                {dept}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
+                      render={({ field }) => {
+                        const options = selectedRole === "faculty" ? BTECH_FACULTY_DEPARTMENTS : BTECH_SPECIALIZATIONS;
+                        return (
+                          <Select onValueChange={field.onChange} value={field.value || options[0]}>
+                            <SelectTrigger id="department" className="text-xs">
+                              <SelectValue placeholder={selectedRole === "student" ? "Select B.Tech Branch" : "Select Department"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {options.map((dept) => (
+                                <SelectItem key={dept} value={dept} className="text-xs">
+                                  {dept}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        );
+                      }}
                     />
                     {errors.department && (
                       <p className="text-[11px] text-rose-600">{errors.department.message}</p>

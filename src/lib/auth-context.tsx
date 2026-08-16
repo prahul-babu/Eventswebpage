@@ -353,7 +353,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           officialEmail: payload.officialEmail.toLowerCase().trim(),
           mobileNumber: payload.mobileNumber?.trim() || "",
           employeeId: payload.employeeId.trim().toUpperCase(),
-          department: payload.department || "School of Technology",
+          department: payload.department || "Department of Computer Science & Engineering",
           school: payload.school || "School of Technology",
           designation: payload.designation || "Assistant Professor",
           alternateEmail: payload.alternateEmail?.toLowerCase().trim() || undefined,
@@ -567,7 +567,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             userData.department ||
             (profileRole === "admin"
               ? "Institutional Administration"
-              : "School of Technology"),
+              : profileRole === "faculty"
+              ? "Department of Computer Science & Engineering"
+              : "B.Tech. Computer Science and Engineering"),
           onboardingCompleted: true,
           updatedAt: new Date(),
         };
@@ -648,7 +650,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             mobile: payload.phoneNumber || "",
             mobileNumber: payload.phoneNumber || "",
             employeeId: payload.employeeId ? payload.employeeId.trim().toUpperCase() : "",
-            department: payload.department || "School of Technology",
+            department: payload.department || "Department of Computer Science & Engineering",
             school: payload.school || "School of Technology",
             designation: payload.designation || "Assistant Professor",
             alternateEmail: payload.alternateEmail?.toLowerCase().trim() || undefined,
@@ -684,7 +686,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             payload.department ||
             (effRole === "faculty"
               ? "Department of Computer Science & Engineering"
-              : "School of Technology"),
+              : "B.Tech. Computer Science and Engineering"),
           school: payload.school || "School of Technology",
           designation: payload.designation || (effRole === "faculty" ? "Assistant Professor" : ""),
           phoneNumber: payload.phoneNumber || "",
@@ -797,7 +799,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 isApproved: fallbackRole !== "faculty",
                 accountStatus: fallbackStatus === "ACTIVE" ? "active" : "pending",
                 approvalStatus: fallbackStatus === "ACTIVE" ? "approved" : "pending",
-                department: "School of Technology",
+                department: fallbackRole === "faculty" ? "Department of Computer Science & Engineering" : "B.Tech. Computer Science and Engineering",
                 school: "School of Technology",
                 onboardingCompleted: true,
                 createdAt: new Date(),
@@ -844,7 +846,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
               isApproved,
               approvalStatus: isApproved ? "approved" : profileStatus === "REJECTED" ? "rejected" : "pending",
               accountStatus: profileStatus === "ACTIVE" ? "active" : "pending",
-              department: userData.department || "School of Technology",
+              department: userData.department || (profileRole === "faculty" ? "Department of Computer Science & Engineering" : "B.Tech. Computer Science and Engineering"),
               school: userData.school || "School of Technology",
               rollNumber: userData.rollNumber || userData.studentId,
               studentId: userData.studentId || userData.rollNumber,
@@ -959,7 +961,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           isApproved: true,
           accountStatus: "active",
           approvalStatus: "approved",
-          department: "School of Technology",
+          department: devRole === "faculty" ? "Department of Computer Science & Engineering" : "B.Tech. Computer Science and Engineering",
           school: "School of Technology",
           onboardingCompleted: true,
           createdAt: new Date(),
@@ -1061,7 +1063,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             ? "Institutional Administration"
             : newRole === "faculty"
             ? "Department of Computer Science & Engineering"
-            : "School of Technology",
+            : "B.Tech. Computer Science and Engineering",
         updatedAt: new Date(),
       };
       await setDoc(userDocRef, updatedProfile, { merge: true });

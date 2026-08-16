@@ -143,7 +143,7 @@ export const RegistrationDialog: React.FC<RegistrationDialogProps> = ({
 
   const displayName = profile?.displayName || firebaseUser?.displayName || "Campus Scholar";
   const userEmail = profile?.email || firebaseUser?.email || "";
-  const department = profile?.department || "School of Technology";
+  const department = profile?.department || "B.Tech. Computer Science and Engineering";
   const rollNumber = profile?.rollNumber || profile?.studentId;
 
   return (

@@ -1,12 +1,21 @@
 import { z } from "zod";
 import { USER_ROLES, USER_STATUSES, ACADEMIC_YEARS, ACADEMIC_SECTIONS, FACULTY_DESIGNATIONS } from "@/types/user";
+import { isForbiddenNonBTechDepartment } from "@/config/departments";
 
 export const userRoleSchema = z.enum(USER_ROLES);
 export const userStatusSchema = z.enum(USER_STATUSES);
 export const academicYearSchema = z.enum(ACADEMIC_YEARS);
 export const academicSectionSchema = z.enum(ACADEMIC_SECTIONS);
 export const facultyDesignationSchema = z.enum(FACULTY_DESIGNATIONS);
-export const departmentSchema = z.string().min(2, "Department is required");
+export const departmentSchema = z
+  .string()
+  .min(2, "Department is required")
+  .refine(
+    (dept) => !isForbiddenNonBTechDepartment(dept),
+    {
+      message: "Only B.Tech / School of Technology departments and specializations are permitted.",
+    }
+  );
 
 export const onboardingRoleSelectionSchema = z.object({
   role: z.enum(["student", "faculty"], {

@@ -26,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { isForbiddenNonBTechDepartment } from "@/config/departments";
 import { toast } from "sonner";
 
 interface ParsedRosterRow {
@@ -55,19 +56,19 @@ export const AdminUserImportPage: React.FC = () => {
     const csvContent =
       "data:text/csv;charset=utf-8," +
       "email,name,role,department,rollNumber,employeeId,year,section\n" +
-      "rohan.sharma@student.apollouniversity.edu.in,Rohan Sharma,student,Computer Science,21CS101,,4th Year,A\n" +
-      "dr.ananya@apollouniversity.edu.in,Dr. Ananya Ray,faculty,Electronics & Comm,,EMP9082,,\n";
+      "rohan.sharma@student.apollouniversity.edu.in,Rohan Sharma,student,B.Tech. Computer Science and Engineering,21CS101,,4th Year (B.Tech / UG),A\n" +
+      "dr.ananya@apollouniversity.edu.in,Dr. Ananya Ray,faculty,Department of Electronics & Communication Engineering,,EMP9082,,\n";
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "Apollo_University_Roster_Template.csv");
+    link.setAttribute("download", "Apollo_University_BTech_Roster_Template.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 
-    toast.info("Roster Template Downloaded", {
-      description: "Fill with campus emails and upload below.",
+    toast.info("B.Tech Roster Template Downloaded", {
+      description: "Fill with campus emails and B.Tech departments.",
     });
   };
 
@@ -87,7 +88,8 @@ export const AdminUserImportPage: React.FC = () => {
           const email = (raw.email || "").trim().toLowerCase();
           const name = (raw.name || "").trim();
           const role = ((raw.role || "").toLowerCase() === "faculty" ? "faculty" : "student") as "student" | "faculty";
-          const department = (raw.department || "General").trim();
+          const fallbackDept = role === "faculty" ? "Department of Computer Science & Engineering" : "B.Tech. Computer Science and Engineering";
+          const department = (raw.department || fallbackDept).trim();
           const rollNumber = raw.rollNumber?.trim();
           const employeeId = raw.employeeId?.trim();
           const year = raw.year?.trim();
@@ -114,6 +116,11 @@ export const AdminUserImportPage: React.FC = () => {
           if (!name) {
             isValid = false;
             validationError = "Name is required";
+          }
+
+          if (isForbiddenNonBTechDepartment(department)) {
+            isValid = false;
+            validationError = `Non-B.Tech department "${department}" is not permitted`;
           }
 
           if (isValid) {

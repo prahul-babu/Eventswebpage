@@ -33,23 +33,11 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { UserRole } from "@/types";
+import { BTECH_SPECIALIZATIONS, BTECH_FACULTY_DEPARTMENTS } from "@/types/user";
 import { toast } from "sonner";
 
-const BTECH_BRANCHES = [
-  "B.Tech. Computer Science and Engineering",
-  "B.Tech. CSE - Artificial Intelligence and Data Science",
-  "B.Tech. CSE - Artificial Intelligence and Machine Learning",
-  "B.Tech. CSE - Cyber Security",
-  "B.Tech. CSE - Cloud Computing",
-  "B.Tech. CSE - AI & Health Care Technology",
-];
-
-const FACULTY_DEPARTMENTS = [
-  "Department of Computer Science & Engineering",
-  "Department of AI & Data Science",
-  "Department of Cyber Security",
-  "School of Technology - General Administration",
-];
+const BTECH_BRANCHES = BTECH_SPECIALIZATIONS;
+const FACULTY_DEPARTMENTS = BTECH_FACULTY_DEPARTMENTS;
 
 export const LoginPage: React.FC = () => {
   const {
@@ -99,8 +87,8 @@ export const LoginPage: React.FC = () => {
   // Sign Up Form State
   const [signUpRole, setSignUpRole] = useState<"student" | "faculty">("student");
   const [signUpName, setSignUpName] = useState("");
-  const [signUpBranch, setSignUpBranch] = useState(BTECH_BRANCHES[0]);
-  const [signUpFacultyDept, setSignUpFacultyDept] = useState(FACULTY_DEPARTMENTS[0]);
+  const [signUpBranch, setSignUpBranch] = useState<string>(BTECH_BRANCHES[0]);
+  const [signUpFacultyDept, setSignUpFacultyDept] = useState<string>(FACULTY_DEPARTMENTS[0]);
   const [signUpDesignation, setSignUpDesignation] = useState("Assistant Professor");
   const [signUpMobile, setSignUpMobile] = useState("");
   const [signUpRollNo, setSignUpRollNo] = useState("");

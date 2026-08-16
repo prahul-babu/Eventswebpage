@@ -176,7 +176,7 @@ export const PendingPage: React.FC = () => {
   const displayName = profile?.displayName || firebaseUser.displayName || "Campus Member";
   const userEmail = profile?.email || firebaseUser.email || "";
   const roleName = profile?.role || role || "faculty";
-  const department = profile?.department || "School of Technology";
+  const department = profile?.department || (roleName === "faculty" ? "Department of Computer Science & Engineering" : "B.Tech. Computer Science and Engineering");
   const submittedAt = profile?.createdAt ? new Date(profile.createdAt).toLocaleString() : "Recently";
   const idNumber = profile?.rollNumber || profile?.employeeId || null;
 

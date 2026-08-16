@@ -47,18 +47,16 @@ export interface AdminNotification {
   createdAt: any;
 }
 
-// Apollo University Academic Departments
-export const DEPARTMENTS = [
-  "School of Technology",
-  "B.Tech. Computer Science and Engineering",
-  "B.Tech. CSE - Artificial Intelligence and Data Science",
-  "B.Tech. CSE - Artificial Intelligence and Machine Learning",
-  "B.Tech. CSE - Cyber Security",
-  "B.Tech. CSE - Cloud Computing",
-  "B.Tech. CSE - AI & Health Care Technology",
-  "School of Management",
-  "School of Health Sciences",
-  "General Administration",
+// Apollo University B.Tech Academic Departments & Specializations
+export const BTECH_FACULTY_DEPARTMENTS = [
+  "Department of Computer Science & Engineering",
+  "Department of AI & Data Science",
+  "Department of Cyber Security",
+  "Department of Information Technology",
+  "Department of Electronics & Communication Engineering",
+  "Department of Electrical & Electronics Engineering",
+  "Department of Mechanical Engineering",
+  "Department of Civil Engineering",
 ] as const;
 
 export const BTECH_SPECIALIZATIONS = [
@@ -68,17 +66,28 @@ export const BTECH_SPECIALIZATIONS = [
   "B.Tech. CSE - Cyber Security",
   "B.Tech. CSE - Cloud Computing",
   "B.Tech. CSE - AI & Health Care Technology",
+  "B.Tech. Information Technology",
+  "B.Tech. Electronics & Communication Engineering",
+  "B.Tech. Electrical & Electronics Engineering",
+  "B.Tech. Mechanical Engineering",
+  "B.Tech. Civil Engineering",
 ] as const;
+
+export const DEPARTMENTS = [
+  ...BTECH_SPECIALIZATIONS,
+  ...BTECH_FACULTY_DEPARTMENTS,
+] as const;
+
 export type Department = (typeof DEPARTMENTS)[number];
 
-// Academic Year Options for Students
+// Academic Year Options for Students (Pure B.Tech / Engineering)
 export const ACADEMIC_YEARS = [
   "1st Year (B.Tech / UG)",
   "2nd Year (B.Tech / UG)",
   "3rd Year (B.Tech / UG)",
   "4th Year (B.Tech / UG)",
-  "1st Year (PG / M.Tech / MBA / MHA)",
-  "2nd Year (PG / M.Tech / MBA / MHA)",
+  "1st Year (M.Tech / PG)",
+  "2nd Year (M.Tech / PG)",
   "PhD Research Scholar",
 ] as const;
 export type AcademicYear = (typeof ACADEMIC_YEARS)[number];

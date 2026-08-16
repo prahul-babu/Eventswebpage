@@ -57,6 +57,24 @@ export const requestAccess = onCall(
       throw new HttpsError("invalid-argument", "Full name and Department are required.");
     }
 
+    const FORBIDDEN_NON_BTECH_KEYWORDS = [
+      "school of management",
+      "school of health sciences",
+      "general administration",
+      "management",
+      "health sciences",
+      "mba",
+      "mha",
+    ];
+
+    const normalizedDept = data.department.trim().toLowerCase();
+    if (FORBIDDEN_NON_BTECH_KEYWORDS.some((kw) => normalizedDept.includes(kw))) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Only B.Tech / School of Technology departments and specializations are permitted."
+      );
+    }
+
     // Conditional role validation
     if (data.requestedRole === "student" && (!data.rollNumber || data.rollNumber.trim().length < 3)) {
       throw new HttpsError("invalid-argument", "University Roll Number is required for students.");

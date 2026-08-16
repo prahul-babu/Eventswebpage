@@ -116,7 +116,7 @@ export const resolveUser = onCall(
         displayName: roster.displayName || displayName,
         role,
         status,
-        department: roster.department || "General Administration",
+        department: roster.department || "B.Tech. Computer Science and Engineering",
         rollNumber: roster.rollNumber || null,
         employeeId: roster.employeeId || null,
         designation: roster.designation || null,

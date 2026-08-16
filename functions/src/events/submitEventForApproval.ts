@@ -60,6 +60,19 @@ export const submitEventForApproval = onCall(
       throw new HttpsError("invalid-argument", "Event description is required.");
     }
 
+    const FORBIDDEN_NON_BTECH = [
+      "school of management",
+      "school of health sciences",
+      "general administration",
+      "management",
+      "health sciences",
+    ];
+    const dept = (event.department || "").toLowerCase();
+    const school = (event.school || "").toLowerCase();
+    if (FORBIDDEN_NON_BTECH.some((f) => dept.includes(f) || school.includes(f))) {
+      throw new HttpsError("invalid-argument", "Only B.Tech / School of Technology events can be submitted.");
+    }
+
     const startAt = event.startAt?.toDate ? event.startAt.toDate() : new Date(event.startAt);
     const endAt = event.endAt?.toDate ? event.endAt.toDate() : new Date(event.endAt);
     const regDeadline = event.registrationDeadline?.toDate ? event.registrationDeadline.toDate() : new Date(event.registrationDeadline);

@@ -336,7 +336,7 @@ export const EventWizardPage: React.FC = () => {
     organiserName: profile?.displayName || "Faculty Organiser",
     organiserEmail: profile?.email || "faculty@apollo.edu.in",
     organiserRole: "faculty",
-    department: profile?.department || "Department of CSE",
+    department: profile?.department || "Department of Computer Science & Engineering",
     createdAt: new Date(),
     updatedAt: new Date(),
   };
