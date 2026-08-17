@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Clock,
+  User as UserIcon,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth-context";
@@ -39,6 +40,8 @@ export interface NotificationItem extends AdminNotification {
   eventTitle?: string;
   senderRole?: string;
   senderName?: string;
+  subject?: string;
+  message?: string;
 }
 
 export const NotificationBell: React.FC = () => {
@@ -81,7 +84,7 @@ export const NotificationBell: React.FC = () => {
       updateAndSort();
     };
 
-    // 1. Query by recipientUid (no compound index required)
+    // 1. Query by recipientUid
     try {
       const qUid = query(
         notifsRef,
@@ -168,11 +171,16 @@ export const NotificationBell: React.FC = () => {
 
     if (item.type === "ADMIN_FACULTY_UPDATE") {
       navigate(item.link || (eventId ? `/faculty/events` : "/faculty/events"));
-    } else if (item.type === "FACULTY_EVENT_UPDATE" || item.type === "EVENT_UPDATED" || item.type === "EVENT_UPDATE") {
+    } else if (
+      item.type === "FACULTY_EVENT_UPDATE" ||
+      item.type === "EVENT_UPDATED" ||
+      item.type === "EVENT_UPDATE" ||
+      item.type === "event_update"
+    ) {
       if (eventId) {
         navigate(`/events/${eventId}#updates`);
       } else {
-        navigate(item.link || "/registrations");
+        navigate(item.link || "/my-registrations");
       }
     } else if (item.type === "ACCESS_REQUEST" || item.type === "ACCESS_REQUESTED") {
       navigate("/admin/approvals");
@@ -212,11 +220,11 @@ export const NotificationBell: React.FC = () => {
     if (t === "ADMIN_FACULTY_UPDATE") {
       return (
         <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 font-bold bg-purple-50 text-purple-700 border-purple-200">
-          Admin Update
+          Admin Notice
         </Badge>
       );
     }
-    if (t === "FACULTY_EVENT_UPDATE" || t === "EVENT_UPDATED" || t === "EVENT_UPDATE") {
+    if (t === "FACULTY_EVENT_UPDATE" || t === "EVENT_UPDATED" || t === "EVENT_UPDATE" || t === "event_update") {
       return (
         <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4 font-bold bg-[#E0F3F7] text-[#007A99] border-cyan-200">
           Faculty Update
@@ -249,7 +257,7 @@ export const NotificationBell: React.FC = () => {
     if (t === "ADMIN_FACULTY_UPDATE") {
       return <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0" />;
     }
-    if (t === "FACULTY_EVENT_UPDATE" || t === "EVENT_UPDATED" || t === "EVENT_UPDATE") {
+    if (t === "FACULTY_EVENT_UPDATE" || t === "EVENT_UPDATED" || t === "EVENT_UPDATE" || t === "event_update") {
       return <Megaphone className="w-4 h-4 text-[#007A99] shrink-0" />;
     }
     if (t === "EVENT_APPROVED") {
@@ -275,22 +283,30 @@ export const NotificationBell: React.FC = () => {
         >
           <Bell className="w-5 h-5 text-slate-700" />
           {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black text-white bg-[#F5A623] rounded-full border-2 border-white animate-pulse">
+            <span className="absolute top-1 right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black text-white bg-[#F5A623] rounded-full border-2 border-white shadow-xs animate-pulse">
               {displayCount}
             </span>
           )}
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-80 sm:w-96 p-0 rounded-3xl shadow-2xl border-slate-200 overflow-hidden bg-white z-50">
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        collisionPadding={16}
+        className="w-[360px] sm:w-[420px] p-0 rounded-2xl shadow-xl border border-slate-200 overflow-hidden bg-white z-50"
+      >
         {/* Popover Header */}
-        <div className="flex items-center justify-between p-4 border-b bg-slate-50/80 rounded-t-3xl">
+        <div className="flex items-center justify-between p-3.5 sm:p-4 border-b border-slate-100 bg-slate-50/90">
           <div className="flex items-center gap-2">
-            <h4 className="font-bold text-sm text-slate-900">Notifications</h4>
+            <div className="w-6 h-6 rounded-lg bg-[#E0F3F7] text-[#007A99] flex items-center justify-center">
+              <Bell className="w-3.5 h-3.5" />
+            </div>
+            <h4 className="font-extrabold text-sm text-slate-900">Notifications</h4>
             {unreadCount > 0 && (
-              <Badge variant="secondary" className="text-[10px] font-black bg-[#F5A623] text-slate-950 px-1.5 py-0.2">
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-[#E0F3F7] text-[#004D61] border border-cyan-200">
                 {unreadCount} new
-              </Badge>
+              </span>
             )}
           </div>
 
@@ -300,7 +316,7 @@ export const NotificationBell: React.FC = () => {
               variant="ghost"
               size="sm"
               onClick={handleMarkAllAsRead}
-              className="text-[11px] h-7 px-2 text-[#007A99] hover:text-[#004D61] hover:bg-[#E0F3F7] font-bold rounded-lg cursor-pointer"
+              className="text-[11px] h-7 px-2.5 text-[#007A99] hover:text-[#004D61] hover:bg-[#E0F3F7] font-bold rounded-lg transition-colors cursor-pointer"
             >
               <CheckCheck className="w-3.5 h-3.5 mr-1" />
               <span>Mark all as read</span>
@@ -309,12 +325,16 @@ export const NotificationBell: React.FC = () => {
         </div>
 
         {/* Notifications List */}
-        <div className="max-h-[380px] overflow-y-auto divide-y divide-slate-100">
+        <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
           {notifications.length === 0 ? (
-            <div className="p-8 text-center space-y-2 text-slate-400">
-              <Inbox className="w-8 h-8 mx-auto stroke-1 text-slate-300" />
-              <p className="text-xs font-medium text-slate-600">No notifications yet</p>
-              <p className="text-[11px] text-slate-400">We'll alert you when event updates or administrative notices arrive.</p>
+            <div className="py-12 px-6 text-center space-y-2 text-slate-400">
+              <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center mx-auto text-slate-300">
+                <Inbox className="w-6 h-6 stroke-1" />
+              </div>
+              <p className="text-xs font-bold text-slate-700">No notifications yet</p>
+              <p className="text-[11px] text-slate-400 max-w-xs mx-auto leading-relaxed">
+                We'll alert you when campus event updates or administrative notices arrive.
+              </p>
             </div>
           ) : (
             notifications.map((item) => {
@@ -322,52 +342,62 @@ export const NotificationBell: React.FC = () => {
               const dateObj = toDate(item.createdAt);
               const relativeTime = formatDistanceToNow(dateObj, { addSuffix: true });
               const eventContextName = item.eventName || item.eventTitle || item.data?.eventTitle;
+              const senderDisplayName = item.senderName || item.data?.senderName || (item.senderRole === "admin" ? "Administration" : "Faculty Coordinator");
 
               return (
                 <div
                   key={item.id}
                   onClick={() => handleItemClick(item)}
-                  className={`p-3.5 text-left cursor-pointer transition-colors hover:bg-slate-50 flex items-start gap-3 relative ${
-                    !isItemRead ? "bg-[#E0F3F7]/30" : ""
+                  className={`p-3.5 sm:p-4 text-left cursor-pointer transition-all hover:bg-slate-50/90 flex items-start gap-3 relative ${
+                    !isItemRead ? "bg-[#F4FBFD]/80" : "bg-white"
                   }`}
                 >
                   {/* Icon & Unread Dot */}
                   <div className="pt-0.5 shrink-0 relative">
-                    <div className="w-7 h-7 rounded-xl bg-white border border-slate-200/80 shadow-2xs flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-xl bg-white border border-slate-200/90 shadow-2xs flex items-center justify-center">
                       {getNotificationIcon(item)}
                     </div>
                     {!isItemRead && (
-                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#F5A623] ring-2 ring-white animate-ping" />
+                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#F5A623] ring-2 ring-white" />
                     )}
                   </div>
 
                   {/* Body Content */}
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex items-center justify-between gap-1.5">
-                      <div className="flex items-center gap-1.5 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                         {getNotificationBadge(item)}
                         {eventContextName && (
-                          <span className="text-[10px] font-bold text-[#007A99] truncate max-w-[130px]">
+                          <span className="text-[11px] font-bold text-[#004D61] truncate max-w-[150px]">
                             {eventContextName}
                           </span>
                         )}
                       </div>
-                      <span className="text-[10px] text-slate-400 shrink-0 flex items-center gap-0.5">
+                      <span className="text-[10px] text-slate-400 shrink-0 flex items-center gap-1 font-medium">
                         <Clock className="w-2.5 h-2.5" />
                         {relativeTime}
                       </span>
                     </div>
 
-                    <p className={`text-xs leading-snug line-clamp-1 ${!isItemRead ? "font-bold text-slate-900" : "font-semibold text-slate-700"}`}>
-                      {item.title}
-                    </p>
+                    <h5 className={`text-xs leading-snug line-clamp-1 ${!isItemRead ? "font-extrabold text-slate-900" : "font-bold text-slate-800"}`}>
+                      {item.title || item.subject}
+                    </h5>
 
-                    <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
+                    <p className="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
                       {item.message || item.body}
                     </p>
-                  </div>
 
-                  <ExternalLink className="w-3 h-3 text-slate-300 shrink-0 self-center" />
+                    <div className="pt-0.5 flex items-center justify-between text-[10px] text-slate-400">
+                      <span className="flex items-center gap-1 font-medium text-slate-500">
+                        <UserIcon className="w-2.5 h-2.5 text-[#007A99]" />
+                        {senderDisplayName}
+                      </span>
+                      <span className="text-[#007A99] font-bold inline-flex items-center gap-0.5 hover:underline">
+                        <span>View Details</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </span>
+                    </div>
+                  </div>
                 </div>
               );
             })
@@ -377,4 +407,5 @@ export const NotificationBell: React.FC = () => {
     </Popover>
   );
 };
+
 export default NotificationBell;
