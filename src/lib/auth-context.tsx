@@ -44,6 +44,7 @@ import type {
 import { normalizeBTechDepartment } from "@/config/departments";
 import { toast } from "sonner";
 import { createAuditLog } from "@/lib/audit";
+import { sanitizeFirestoreData } from "@/lib/validation";
 
 export interface AuthClaims {
   role?: UserRole;
@@ -297,17 +298,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         const userDocRef = doc(db, "users", user.uid);
         
         // Deep sanitization: Ensure ZERO undefined values reach Firestore
-        const rawPayload: any = {
+        const cleanedUpdates = sanitizeFirestoreData({
           ...updates,
           updatedAt: new Date(),
-        };
-
-        const cleanedUpdates: any = {};
-        for (const [k, v] of Object.entries(rawPayload)) {
-          if (v !== undefined) {
-            cleanedUpdates[k] = v;
-          }
-        }
+        });
 
         await setDoc(userDocRef, cleanedUpdates, { merge: true });
 
@@ -395,13 +389,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           rejectionReason: null,
         };
 
-        await setDoc(doc(db, "facultyApplications", appId), appData);
+        const cleanedAppData = sanitizeFirestoreData(appData);
+        await setDoc(doc(db, "facultyApplications", appId), cleanedAppData);
 
         if (auth.currentUser) {
           const userDocRef = doc(db, "users", auth.currentUser.uid);
           await setDoc(
             userDocRef,
-            {
+            sanitizeFirestoreData({
               uid: auth.currentUser.uid,
               email: payload.officialEmail.toLowerCase().trim(),
               displayName: payload.fullName.trim(),
@@ -409,13 +404,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
               status: "PENDING",
               approvalStatus: "pending",
               isApproved: false,
+              department: payload.department || "Department of Computer Science & Engineering",
+              school: payload.school || "School of Technology",
+              designation: payload.designation || "Assistant Professor",
+              phoneNumber: payload.mobileNumber?.trim() || "",
+              phone: payload.mobileNumber?.trim() || "",
               employeeId: payload.employeeId.trim().toUpperCase(),
               facultyId: payload.employeeId.trim().toUpperCase(),
-              department: payload.department,
-              school: payload.school || "School of Technology",
-              designation: payload.designation,
+              onboardingCompleted: true,
               updatedAt: new Date(),
-            },
+            }),
             { merge: true }
           );
 
@@ -757,11 +755,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
         // 5. Write to Firestore users/{uid}
         const userDocRef = doc(db, "users", user.uid);
-        await setDoc(userDocRef, userProfile, { merge: true });
+        const cleanedUserProfile = sanitizeFirestoreData(userProfile);
+        await setDoc(userDocRef, cleanedUserProfile, { merge: true });
 
         // 6. Set active local session
         setFirebaseUser(user);
-        setProfile(userProfile);
+        setProfile(cleanedUserProfile);
         setClaims({ role: effRole, status: effStatus });
         persistUserRole(effRole, effStatus);
 

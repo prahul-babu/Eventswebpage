@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PHONE_REGEX, PHONE_ERROR_MESSAGES } from "@/lib/validation";
 
 export const teamMemberSchema = z.object({
   name: z.string().min(2, "Member name must be at least 2 characters"),
@@ -10,7 +11,7 @@ export const createRegistrationSchema = z.object({
   eventId: z.string().min(1, "Event ID is required"),
   contactPhone: z
     .string()
-    .regex(/^[6-9]\d{9}$/, "Please enter a valid 10-digit Indian mobile number")
+    .regex(PHONE_REGEX, PHONE_ERROR_MESSAGES.INVALID)
     .optional()
     .or(z.literal("")),
   teamName: z.string().min(2, "Team name must be at least 2 characters").optional().or(z.literal("")),

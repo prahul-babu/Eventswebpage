@@ -2,6 +2,8 @@ import { z } from "zod";
 import { USER_ROLES, USER_STATUSES, ACADEMIC_YEARS, ACADEMIC_SECTIONS, FACULTY_DESIGNATIONS } from "@/types/user";
 import { isForbiddenNonBTechDepartment } from "@/config/departments";
 
+import { PHONE_REGEX, PHONE_ERROR_MESSAGES } from "@/lib/validation";
+
 export const userRoleSchema = z.enum(USER_ROLES);
 export const userStatusSchema = z.enum(USER_STATUSES);
 export const academicYearSchema = z.enum(ACADEMIC_YEARS);
@@ -35,7 +37,7 @@ export const requestAccessSchema = z
     department: departmentSchema,
     phoneNumber: z
       .string()
-      .regex(/^[6-9]\d{9}$/, "Please enter a valid 10-digit Indian mobile number")
+      .regex(PHONE_REGEX, PHONE_ERROR_MESSAGES.INVALID)
       .optional()
       .or(z.literal("")),
     
@@ -99,7 +101,7 @@ export const updateUserProfileSchema = z.object({
   displayName: z.string().min(2, "Name must be at least 2 characters").max(100).optional(),
   phoneNumber: z
     .string()
-    .regex(/^[6-9]\d{9}$/, "Please enter a valid 10-digit Indian mobile number")
+    .regex(PHONE_REGEX, PHONE_ERROR_MESSAGES.INVALID)
     .optional()
     .or(z.literal("")),
   department: departmentSchema.optional(),

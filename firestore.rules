@@ -12,41 +12,92 @@ service cloud.firestore {
       return isAuthenticated() && (request.auth.uid == userId);
     }
 
-    // Users Collection (Profile Management)
+    function isValidPhone(val) {
+      return val is string && val.matches('^[0-9]{10}$');
+    }
+
+    function isValidOptionalPhone(data, field) {
+      return !(field in data) || data[field] == null || data[field] == '' || isValidPhone(data[field]);
+    }
+
+    function isValidEmail(val) {
+      return val is string && val.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    function isValidOptionalEmail(data, field) {
+      return !(field in data) || data[field] == null || data[field] == '' || isValidEmail(data[field]);
+    }
+
+    // 1. Users Collection (Profile Management with Phone & Email Validation)
     match /users/{userId} {
       allow read: if true;
-      allow create: if true;
-      allow update: if isAuthenticated();
+      allow create: if true &&
+        isValidOptionalPhone(request.resource.data, 'phoneNumber') &&
+        isValidOptionalPhone(request.resource.data, 'phone') &&
+        isValidOptionalPhone(request.resource.data, 'emergencyContactPhone') &&
+        isValidOptionalEmail(request.resource.data, 'email') &&
+        isValidOptionalEmail(request.resource.data, 'personalEmail');
+      allow update: if isAuthenticated() &&
+        isValidOptionalPhone(request.resource.data, 'phoneNumber') &&
+        isValidOptionalPhone(request.resource.data, 'phone') &&
+        isValidOptionalPhone(request.resource.data, 'emergencyContactPhone') &&
+        isValidOptionalEmail(request.resource.data, 'email') &&
+        isValidOptionalEmail(request.resource.data, 'personalEmail');
       allow delete: if isAuthenticated();
     }
 
-    // Faculty Applications Collection (Account Approval Workflow)
+    // 2. Faculty Applications Collection (Account Approval Workflow)
     match /facultyApplications/{appId} {
       allow read: if true;
-      allow create: if true;
+      allow create: if true &&
+        isValidOptionalPhone(request.resource.data, 'mobileNumber') &&
+        isValidOptionalEmail(request.resource.data, 'officialEmail');
       allow update, delete: if true;
     }
 
-    // Events Collection (Faculty Ownership & Student Catalog)
+    // 3. Events Collection (Faculty Ownership & Student Catalog)
     match /events/{eventId} {
       allow read: if true;
-      allow create: if true;
-      allow update, delete: if true;
+      allow create: if true &&
+        isValidOptionalPhone(request.resource.data, 'contactPhone') &&
+        isValidOptionalEmail(request.resource.data, 'organiserEmail') &&
+        isValidOptionalEmail(request.resource.data, 'createdByEmail');
+      allow update, delete: if true &&
+        isValidOptionalPhone(request.resource.data, 'contactPhone') &&
+        isValidOptionalEmail(request.resource.data, 'organiserEmail') &&
+        isValidOptionalEmail(request.resource.data, 'createdByEmail');
+
+      match /attachments/{attachmentId} {
+        allow read, write: if true;
+      }
     }
 
-    // Registrations Collection (Student Bookings & Check-ins)
+    // 4. Registrations Collection (Student Bookings & Check-ins)
     match /registrations/{registrationId} {
       allow read: if true;
-      allow create: if true;
+      allow create: if true &&
+        isValidOptionalPhone(request.resource.data, 'contactPhone') &&
+        isValidOptionalPhone(request.resource.data, 'userPhone') &&
+        isValidOptionalEmail(request.resource.data, 'userEmail');
       allow update, delete: if true;
     }
 
-    // Mail Queue Collection (Firebase Trigger Email extension)
+    // 5. Post-Event Reports Collection
+    match /event_reports/{reportId} {
+      allow read, write: if true;
+    }
+
+    // 6. Event Attachments Collection
+    match /event_attachments/{attachmentId} {
+      allow read, write: if true;
+    }
+
+    // 7. Mail Queue Collection (Firebase Trigger Email extension)
     match /mail/{mailId} {
       allow read, write: if true;
     }
 
-    // Notifications Collection (In-app notifications)
+    // 8. Notifications Collection (In-app notifications)
     match /notifications/{notifId} {
       allow read, write: if true;
       match /items/{itemId} {
@@ -54,11 +105,15 @@ service cloud.firestore {
       }
     }
 
-    // Audit Logs Collection (System Governance)
+    // 9. Audit Logs Collection (System Governance)
     match /auditLogs/{logId} {
       allow read: if true;
       allow create: if true;
       allow update, delete: if true;
+    }
+
+    match /audit_logs/{logId} {
+      allow read, write: if true;
     }
 
     // General fallback for collections

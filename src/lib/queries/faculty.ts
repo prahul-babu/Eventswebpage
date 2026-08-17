@@ -15,6 +15,7 @@ import { getEventsCollection, getRegistrationsCollection } from "@/lib/converter
 import type { Event, Registration, CreateEventPayload } from "@/types";
 import { toast } from "sonner";
 import { logAuditEvent } from "@/lib/audit";
+import { sanitizeFirestoreData } from "@/lib/validation";
 
 export interface FacultyDashboardMetrics {
   totalEvents: number;
@@ -30,13 +31,7 @@ export interface FacultyDashboardMetrics {
 }
 
 function cleanFirestorePayload(raw: Record<string, any>): Record<string, any> {
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(raw)) {
-    if (value !== undefined) {
-      result[key] = value;
-    }
-  }
-  return result;
+  return sanitizeFirestoreData(raw);
 }
 
 /**

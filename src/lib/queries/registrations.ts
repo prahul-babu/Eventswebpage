@@ -21,6 +21,7 @@ import type {
   CancelRegistrationResponse,
 } from "@/types";
 import { toast } from "sonner";
+import { sanitizeFirestoreData } from "@/lib/validation";
 
 export interface StudentRegistrationItem {
   registration: Registration;
@@ -315,9 +316,7 @@ export function useCreateRegistration() {
       };
 
       // Strip any potential undefined values so Firestore never rejects the payload
-      const cleanedRegistration = Object.fromEntries(
-        Object.entries(newRegistration).filter(([_, v]) => v !== undefined)
-      );
+      const cleanedRegistration = sanitizeFirestoreData(newRegistration);
 
       // Save registration directly to Firestore
       const regDocRef = doc(db, "registrations", regId);

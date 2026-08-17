@@ -35,6 +35,7 @@ import {
 import type { UserRole } from "@/types";
 import { BTECH_SPECIALIZATIONS, BTECH_FACULTY_DEPARTMENTS } from "@/types/user";
 import { toast } from "sonner";
+import { isValidEmail, isValidPhoneNumber, PHONE_ERROR_MESSAGES, EMAIL_ERROR_MESSAGES } from "@/lib/validation";
 
 const BTECH_BRANCHES = BTECH_SPECIALIZATIONS;
 const FACULTY_DEPARTMENTS = BTECH_FACULTY_DEPARTMENTS;
@@ -231,6 +232,18 @@ export const LoginPage: React.FC = () => {
     if (!trimmedEmail) {
       setSignUpError("Please enter your Email Address.");
       toast.error("Email Address Required", { description: "Please type your email address in the Email field." });
+      return;
+    }
+
+    if (!isValidEmail(trimmedEmail)) {
+      setSignUpError(EMAIL_ERROR_MESSAGES.INVALID);
+      toast.error("Invalid Email", { description: EMAIL_ERROR_MESSAGES.INVALID });
+      return;
+    }
+
+    if (signUpRole === "faculty" && signUpMobile.trim() && !isValidPhoneNumber(signUpMobile.trim())) {
+      setSignUpError(PHONE_ERROR_MESSAGES.INVALID);
+      toast.error("Invalid Phone Number", { description: PHONE_ERROR_MESSAGES.INVALID });
       return;
     }
 

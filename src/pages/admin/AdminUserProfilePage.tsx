@@ -17,6 +17,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAdminUserDetail } from "@/lib/queries/adminUsers";
 import { SendFacultyNotificationModal } from "@/components/admin/SendFacultyNotificationModal";
+import { isValidOptionalPhoneNumber, sanitizeFirestoreData, PHONE_ERROR_MESSAGES } from "@/lib/validation";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,6 +68,12 @@ export const AdminUserProfilePage: React.FC = () => {
 
   const handleSaveChanges = async () => {
     if (!uid) return;
+
+    if (phoneNumber.trim() && !isValidOptionalPhoneNumber(phoneNumber)) {
+      toast.error("Validation Failed", { description: PHONE_ERROR_MESSAGES.INVALID });
+      return;
+    }
+
     try {
       setIsSaving(true);
       const rawUpdates: Record<string, any> = {
@@ -89,7 +96,8 @@ export const AdminUserProfilePage: React.FC = () => {
         rawUpdates.facultyId = employeeId.trim().toUpperCase();
       }
 
-      await setDoc(doc(db, "users", uid), rawUpdates, { merge: true });
+      const sanitizedUpdates = sanitizeFirestoreData(rawUpdates);
+      await setDoc(doc(db, "users", uid), sanitizedUpdates, { merge: true });
       toast.success("Profile Details Updated", { description: "User dossier changes saved to Firestore." });
     } catch (err: any) {
       toast.error("Update Failed", { description: err.message });

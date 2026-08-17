@@ -40,6 +40,10 @@ import {
 } from "@/config/departments";
 import { FACULTY_DESIGNATIONS } from "@/types";
 import type { User } from "@/types";
+import {
+  validateProfileForm,
+  sanitizeFirestoreData,
+} from "@/lib/validation";
 
 interface ProfileErrors {
   displayName?: string;
@@ -49,6 +53,8 @@ interface ProfileErrors {
   btechProgramme?: string;
   employeeId?: string;
   designation?: string;
+  personalEmail?: string;
+  emergencyContactPhone?: string;
 }
 
 export const ProfilePage: React.FC = () => {
@@ -118,42 +124,26 @@ export const ProfilePage: React.FC = () => {
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const newErrors: ProfileErrors = {};
+    // 1. Centralized Form-First Validation
+    const validationResult = validateProfileForm({
+      displayName,
+      phoneNumber,
+      role: role || "student",
+      rollNumber,
+      year,
+      btechProgramme,
+      personalEmail,
+      emergencyContactName,
+      emergencyContactPhone,
+      emergencyContactRelation,
+      employeeId,
+      designation,
+      department: btechProgramme,
+      expertise,
+    });
 
-    // 1. Personal Information validation (All roles)
-    if (!displayName || !displayName.trim()) {
-      newErrors.displayName = "Full name is required.";
-    }
-
-    if (!phoneNumber || !phoneNumber.trim()) {
-      newErrors.phoneNumber = "Mobile contact number is required.";
-    }
-
-    // 2. Role-specific validation
-    if (role === "student") {
-      if (!rollNumber || !rollNumber.trim()) {
-        newErrors.rollNumber = "Student roll number is required.";
-      }
-      if (!year || !year.trim()) {
-        newErrors.year = "Please select your year of study.";
-      }
-      if (!btechProgramme || !btechProgramme.trim()) {
-        newErrors.btechProgramme = "Please select your B.Tech programme.";
-      }
-    } else if (role === "faculty") {
-      if (!employeeId || !employeeId.trim()) {
-        newErrors.employeeId = "Faculty / Employee ID is required.";
-      }
-      if (!designation || !designation.trim()) {
-        newErrors.designation = "Please select your designation.";
-      }
-      if (!btechProgramme || !btechProgramme.trim()) {
-        newErrors.btechProgramme = "Please select your B.Tech programme.";
-      }
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
+    if (!validationResult.valid) {
+      setErrors(validationResult.errors as ProfileErrors);
       return;
     }
 
@@ -193,15 +183,15 @@ export const ProfilePage: React.FC = () => {
           phoneNumber: phoneNumber.trim(),
           phone: phoneNumber.trim(),
           personalEmail: personalEmail.trim() || "",
-          btechProgramme: validProgramme,
-          department: validProgramme,
           employeeId: employeeId.trim().toUpperCase(),
           facultyId: employeeId.trim().toUpperCase(),
           designation: designation.trim() || "Assistant Professor",
+          btechProgramme: validProgramme,
+          department: "Department of Computer Science & Engineering",
           expertise: expertise.trim() || "",
         };
       } else {
-        // Admin Profile - Strict personal/account information only
+        // Admin
         updatesPayload = {
           displayName: displayName.trim(),
           phoneNumber: phoneNumber.trim(),
@@ -209,11 +199,14 @@ export const ProfilePage: React.FC = () => {
         };
       }
 
-      await updateUserProfile(updatesPayload);
+      // 2. Sanitize payload
+      const sanitizedPayload = sanitizeFirestoreData(updatesPayload);
+
+      await updateUserProfile(sanitizedPayload);
       setIsEditDialogOpen(false);
       setErrors({});
     } catch (err: any) {
-      console.error("[ProfilePage] Save profile error:", err);
+      console.error("[ProfilePage] Profile update error:", err);
     } finally {
       setIsSaving(false);
     }
@@ -526,10 +519,18 @@ export const ProfilePage: React.FC = () => {
                       <Input
                         type="email"
                         value={personalEmail}
-                        onChange={(e) => setPersonalEmail(e.target.value)}
+                        onChange={(e) => {
+                          setPersonalEmail(e.target.value);
+                          clearError("personalEmail");
+                        }}
                         placeholder="e.g. personal@gmail.com"
-                        className="h-9 text-xs rounded-xl"
+                        className={`h-9 text-xs rounded-xl ${
+                          errors.personalEmail ? "border-rose-400 ring-2 ring-rose-100" : ""
+                        }`}
                       />
+                      {errors.personalEmail && (
+                        <p className="text-[11px] text-rose-600 font-medium">{errors.personalEmail}</p>
+                      )}
                     </div>
                   )}
 
@@ -754,10 +755,18 @@ export const ProfilePage: React.FC = () => {
                       <Input
                         type="tel"
                         value={emergencyContactPhone}
-                        onChange={(e) => setEmergencyContactPhone(e.target.value)}
+                        onChange={(e) => {
+                          setEmergencyContactPhone(e.target.value);
+                          clearError("emergencyContactPhone");
+                        }}
                         placeholder="e.g. 9123456780"
-                        className="h-9 text-xs rounded-xl"
+                        className={`h-9 text-xs rounded-xl ${
+                          errors.emergencyContactPhone ? "border-rose-400 ring-2 ring-rose-100" : ""
+                        }`}
                       />
+                      {errors.emergencyContactPhone && (
+                        <p className="text-[11px] text-rose-600 font-medium">{errors.emergencyContactPhone}</p>
+                      )}
                     </div>
 
                     <div className="space-y-1.5">

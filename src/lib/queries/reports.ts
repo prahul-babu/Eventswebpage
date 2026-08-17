@@ -19,6 +19,7 @@ import type { EventReport, Event, EventReportStatus } from "@/types";
 import { toast } from "sonner";
 import { createAuditLog } from "@/lib/audit";
 import { auth } from "@/lib/firebase";
+import { sanitizeFirestoreData } from "@/lib/validation";
 
 /**
  * 1. Fetch Single Event Post-Report by eventId
@@ -265,14 +266,7 @@ export function useFacultyReports(facultyUid?: string | null, facultyEmail?: str
 }
 
 function cleanForFirestore<T>(data: T): T {
-  return JSON.parse(
-    JSON.stringify(data, (_key, value) => {
-      if (value === undefined) {
-        return null;
-      }
-      return value;
-    })
-  );
+  return sanitizeFirestoreData(data);
 }
 
 /**

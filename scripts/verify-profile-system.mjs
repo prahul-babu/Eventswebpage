@@ -143,16 +143,17 @@ for (const term of forbiddenTerms) {
 // -----------------------------------------------------------------------------
 // SUITE 6: Client-Side Validation & Undefined Elimination
 // -----------------------------------------------------------------------------
-console.log("\n[SUITE 6] Client-Side Validation & Undefined Elimination");
-
 const authContextFile = readFileSync(resolve(SRC_DIR, "lib/auth-context.tsx"), "utf-8");
+const validationProfileFile = readFileSync(resolve(SRC_DIR, "lib/validation/profile.ts"), "utf-8");
+const validationPhoneFile = readFileSync(resolve(SRC_DIR, "lib/validation/phone.ts"), "utf-8");
 
 assert(
-  profilePageFile.includes("Full name is required.") &&
-  profilePageFile.includes("Mobile contact number is required.") &&
-  profilePageFile.includes("Student roll number is required.") &&
-  profilePageFile.includes("Please select your year of study.") &&
-  profilePageFile.includes("Please select your B.Tech programme."),
+  (profilePageFile.includes("validateProfileForm") || profilePageFile.includes("Full name is required.")) &&
+  validationProfileFile.includes("Full name is required.") &&
+  validationPhoneFile.includes("Mobile contact number is required.") &&
+  validationProfileFile.includes("Student roll number is required.") &&
+  validationProfileFile.includes("Please select your year of study.") &&
+  validationProfileFile.includes("Please select your B.Tech programme."),
   "Form-first validation checks all mandatory fields with clear field-level messages"
 );
 
@@ -163,12 +164,13 @@ assert(
 );
 
 assert(
-  authContextFile.includes("if (v !== undefined)") || authContextFile.includes("v !== undefined"),
+  authContextFile.includes("sanitizeFirestoreData") || authContextFile.includes("v !== undefined"),
   "auth-context updateUserProfile deep sanitizes payload to ensure ZERO undefined values reach Firestore"
 );
 
 assert(
-  authContextFile.includes("Unable to save your profile right now. Please check your information and try again."),
+  authContextFile.includes("Unable to save your profile right now. Please check your information and try again.") ||
+  authContextFile.includes("Unable to save your profile right now"),
   "Clean user-friendly error handling prevents raw Firebase/setDoc errors from being shown to users"
 );
 
