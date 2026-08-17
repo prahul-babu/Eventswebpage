@@ -4,7 +4,6 @@ import {
   collection,
   query,
   where,
-  orderBy,
   limit,
   onSnapshot,
   doc,
@@ -57,76 +56,94 @@ export const NotificationBell: React.FC = () => {
     const currentUid = firebaseUser.uid;
     const currentEmail = (firebaseUser.email || profile?.email || "").toLowerCase().trim();
 
-    // Query recent notifications for current user by UID
     const notifsRef = collection(db, "notifications");
-    const qUid = query(
-      notifsRef,
-      where("recipientUid", "==", currentUid),
-      orderBy("createdAt", "desc"),
-      limit(20)
-    );
+    const unsubscribers: (() => void)[] = [];
+    const itemsMap = new Map<string, NotificationItem>();
 
-    const unsubscribe = onSnapshot(
-      qUid,
-      (snapshot) => {
-        const itemsMap = new Map<string, NotificationItem>();
+    const updateAndSort = () => {
+      const sorted = Array.from(itemsMap.values()).sort(
+        (a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
+      );
+      setNotifications(sorted);
+    };
 
-        snapshot.docs.forEach((docSnap) => {
-          const raw = docSnap.data() as any;
-          const isRead = raw.isRead ?? raw.read ?? false;
-          itemsMap.set(docSnap.id, {
-            id: docSnap.id,
-            ...raw,
-            read: isRead,
-            isRead,
-          });
+    const processSnapshot = (snapshot: any) => {
+      snapshot.docs.forEach((docSnap: any) => {
+        const raw = docSnap.data() as any;
+        const isRead = raw.isRead ?? raw.read ?? false;
+        itemsMap.set(docSnap.id, {
+          id: docSnap.id,
+          ...raw,
+          read: isRead,
+          isRead,
         });
+      });
+      updateAndSort();
+    };
 
-        // Also if currentEmail is present, fallback query items assigned to email
-        if (currentEmail) {
-          const qEmail = query(
-            notifsRef,
-            where("recipientEmail", "==", currentEmail),
-            orderBy("createdAt", "desc"),
-            limit(15)
-          );
+    // 1. Query by recipientUid (no compound index required)
+    try {
+      const qUid = query(
+        notifsRef,
+        where("recipientUid", "==", currentUid),
+        limit(50)
+      );
+      const unsubUid = onSnapshot(qUid, processSnapshot, (err) => {
+        console.warn("[NotificationBell] recipientUid snapshot notice:", err.message);
+      });
+      unsubscribers.push(unsubUid);
+    } catch (err) {
+      console.warn("[NotificationBell] recipientUid query error:", err);
+    }
 
-          onSnapshot(
-            qEmail,
-            (emailSnap) => {
-              emailSnap.docs.forEach((docSnap) => {
-                if (!itemsMap.has(docSnap.id)) {
-                  const raw = docSnap.data() as any;
-                  const isRead = raw.isRead ?? raw.read ?? false;
-                  itemsMap.set(docSnap.id, {
-                    id: docSnap.id,
-                    ...raw,
-                    read: isRead,
-                    isRead,
-                  });
-                }
-              });
+    // 2. Query by recipientUserId
+    try {
+      const qUserId = query(
+        notifsRef,
+        where("recipientUserId", "==", currentUid),
+        limit(50)
+      );
+      const unsubUserId = onSnapshot(qUserId, processSnapshot, (err) => {
+        console.warn("[NotificationBell] recipientUserId snapshot notice:", err.message);
+      });
+      unsubscribers.push(unsubUserId);
+    } catch (err) {
+      console.warn("[NotificationBell] recipientUserId query error:", err);
+    }
 
-              const sorted = Array.from(itemsMap.values()).sort(
-                (a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
-              );
-              setNotifications(sorted);
-            },
-            () => {}
-          );
-        } else {
-          const sorted = Array.from(itemsMap.values()).sort(
-            (a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
-          );
-          setNotifications(sorted);
-        }
-      },
-      (err) => {
-        console.warn("[NotificationBell] Snapshot notice:", err.message);
+    // 3. Query by recipientEmail
+    if (currentEmail) {
+      try {
+        const qEmail = query(
+          notifsRef,
+          where("recipientEmail", "==", currentEmail),
+          limit(50)
+        );
+        const unsubEmail = onSnapshot(qEmail, processSnapshot, (err) => {
+          console.warn("[NotificationBell] recipientEmail snapshot notice:", err.message);
+        });
+        unsubscribers.push(unsubEmail);
+      } catch (err) {
+        console.warn("[NotificationBell] recipientEmail query error:", err);
       }
-    );
+    }
 
-    return () => unsubscribe();
+    // 4. Query user subcollection notifications/{currentUid}/items
+    try {
+      const subRef = collection(db, "notifications", currentUid, "items");
+      const unsubSub = onSnapshot(subRef, processSnapshot, () => {});
+      unsubscribers.push(unsubSub);
+    } catch {
+      // Subcollection optional
+    }
+
+    return () => {
+      unsubscribers.forEach((unsub) => {
+        try {
+          unsub();
+        } catch {}
+      });
+    };
   }, [firebaseUser?.uid, firebaseUser?.email, profile?.email]);
 
   const unreadCount = notifications.filter((n) => !(n.isRead ?? n.read)).length;

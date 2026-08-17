@@ -123,9 +123,11 @@ export function useSendAdminFacultyNotification() {
               senderRole: "admin",
               type: "ADMIN_FACULTY_UPDATE",
               title: subject.trim(),
+              subject: subject.trim(),
               message: message.trim(),
               body: message.trim(),
               eventId: eventContext?.eventId || null,
+              eventTitle: eventContext?.eventTitle || null,
               eventName: eventContext?.eventTitle || null,
               link: eventContext?.eventId ? `/faculty/events` : `/faculty/events`,
               data: {
