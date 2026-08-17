@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,10 +23,6 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import {
   Mail,
-  Building2,
-  ShieldCheck,
-  Phone,
-  Hash,
   Edit2,
   GraduationCap,
   HeartHandshake,
@@ -36,7 +32,6 @@ import {
   CheckCircle2,
   Save,
   Loader2,
-  BookOpen,
 } from "lucide-react";
 import {
   BTECH_PROGRAMMES,
@@ -45,7 +40,16 @@ import {
 } from "@/config/departments";
 import { FACULTY_DESIGNATIONS } from "@/types";
 import type { User } from "@/types";
-import { toast } from "sonner";
+
+interface ProfileErrors {
+  displayName?: string;
+  phoneNumber?: string;
+  rollNumber?: string;
+  year?: string;
+  btechProgramme?: string;
+  employeeId?: string;
+  designation?: string;
+}
 
 export const ProfilePage: React.FC = () => {
   const {
@@ -60,6 +64,7 @@ export const ProfilePage: React.FC = () => {
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [errors, setErrors] = useState<ProfileErrors>({});
 
   // Form State for Profile Editing
   const [displayName, setDisplayName] = useState("");
@@ -75,8 +80,19 @@ export const ProfilePage: React.FC = () => {
   const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
   const [emergencyContactRelation, setEmergencyContactRelation] = useState("");
 
+  const clearError = (field: keyof ProfileErrors) => {
+    if (errors[field]) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
   // Sync profile values into form when opened
   const handleOpenEdit = () => {
+    setErrors({});
     if (profile) {
       setDisplayName(profile.displayName || firebaseUser?.displayName || "");
       setPhoneNumber(profile.phoneNumber || profile.phone || "");
@@ -102,14 +118,42 @@ export const ProfilePage: React.FC = () => {
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!displayName.trim()) {
-      toast.error("Full Name Required", { description: "Please enter your full name." });
-      return;
+    const newErrors: ProfileErrors = {};
+
+    // 1. Personal Information validation (All roles)
+    if (!displayName || !displayName.trim()) {
+      newErrors.displayName = "Full name is required.";
     }
-    if (!phoneNumber.trim()) {
-      toast.error("Contact Number Required", {
-        description: "Please provide a valid contact number for campus notifications.",
-      });
+
+    if (!phoneNumber || !phoneNumber.trim()) {
+      newErrors.phoneNumber = "Mobile contact number is required.";
+    }
+
+    // 2. Role-specific validation
+    if (role === "student") {
+      if (!rollNumber || !rollNumber.trim()) {
+        newErrors.rollNumber = "Student roll number is required.";
+      }
+      if (!year || !year.trim()) {
+        newErrors.year = "Please select your year of study.";
+      }
+      if (!btechProgramme || !btechProgramme.trim()) {
+        newErrors.btechProgramme = "Please select your B.Tech programme.";
+      }
+    } else if (role === "faculty") {
+      if (!employeeId || !employeeId.trim()) {
+        newErrors.employeeId = "Faculty / Employee ID is required.";
+      }
+      if (!designation || !designation.trim()) {
+        newErrors.designation = "Please select your designation.";
+      }
+      if (!btechProgramme || !btechProgramme.trim()) {
+        newErrors.btechProgramme = "Please select your B.Tech programme.";
+      }
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
       return;
     }
 
@@ -118,16 +162,8 @@ export const ProfilePage: React.FC = () => {
       let updatesPayload: Partial<User> = {};
 
       if (role === "student") {
-        if (!rollNumber.trim()) {
-          toast.error("Roll Number Required", {
-            description: "Please enter your B.Tech student roll number.",
-          });
-          setIsSaving(false);
-          return;
-        }
-
         const validProgramme = normalizeBTechDepartment(
-          btechProgramme,
+          btechProgramme.trim(),
           "B.Tech. Computer Science and Engineering"
         );
 
@@ -135,28 +171,20 @@ export const ProfilePage: React.FC = () => {
           displayName: displayName.trim(),
           phoneNumber: phoneNumber.trim(),
           phone: phoneNumber.trim(),
-          personalEmail: personalEmail.trim() || undefined,
+          personalEmail: personalEmail.trim() || "",
           btechProgramme: validProgramme,
           department: validProgramme,
           rollNumber: rollNumber.trim().toUpperCase(),
           studentId: rollNumber.trim().toUpperCase(),
           year: year.trim() || "1st Year (B.Tech / UG)",
           yearOfStudy: year.trim() || "1st Year (B.Tech / UG)",
-          emergencyContactName: emergencyContactName.trim() || undefined,
-          emergencyContactPhone: emergencyContactPhone.trim() || undefined,
-          emergencyContactRelation: emergencyContactRelation.trim() || undefined,
+          emergencyContactName: emergencyContactName.trim() || "",
+          emergencyContactPhone: emergencyContactPhone.trim() || "",
+          emergencyContactRelation: emergencyContactRelation.trim() || "",
         };
       } else if (role === "faculty") {
-        if (!employeeId.trim()) {
-          toast.error("Employee ID Required", {
-            description: "Please enter your official faculty / employee ID.",
-          });
-          setIsSaving(false);
-          return;
-        }
-
         const validProgramme = normalizeBTechDepartment(
-          btechProgramme,
+          btechProgramme.trim(),
           "B.Tech. Computer Science and Engineering"
         );
 
@@ -164,13 +192,13 @@ export const ProfilePage: React.FC = () => {
           displayName: displayName.trim(),
           phoneNumber: phoneNumber.trim(),
           phone: phoneNumber.trim(),
-          personalEmail: personalEmail.trim() || undefined,
+          personalEmail: personalEmail.trim() || "",
           btechProgramme: validProgramme,
           department: validProgramme,
           employeeId: employeeId.trim().toUpperCase(),
           facultyId: employeeId.trim().toUpperCase(),
           designation: designation.trim() || "Assistant Professor",
-          expertise: expertise.trim() || undefined,
+          expertise: expertise.trim() || "",
         };
       } else {
         // Admin Profile - Strict personal/account information only
@@ -183,8 +211,9 @@ export const ProfilePage: React.FC = () => {
 
       await updateUserProfile(updatesPayload);
       setIsEditDialogOpen(false);
-    } catch {
-      // Toast error handled by updateUserProfile
+      setErrors({});
+    } catch (err: any) {
+      console.error("[ProfilePage] Save profile error:", err);
     } finally {
       setIsSaving(false);
     }
@@ -198,303 +227,244 @@ export const ProfilePage: React.FC = () => {
   );
   const userRollNumber = profile?.rollNumber || profile?.studentId;
   const userEmployeeId = profile?.employeeId || profile?.facultyId;
-  const userPhone = profile?.phoneNumber || profile?.phone || "Not provided";
-  const userPersonalEmail = profile?.personalEmail || (profile as any)?.alternateEmail || "Not provided";
-  const userSso =
-    profile?.ssoProvider ||
-    (firebaseUser?.providerData?.[0]?.providerId === "microsoft.com"
-      ? "Microsoft Entra ID"
-      : "Apollo SSO Provider");
 
   return (
-    <div>
+    <div className="space-y-6 max-w-5xl mx-auto pb-12">
       <PageHeader
-        title="My Campus Profile"
-        description="View and manage your Apollo University B.Tech Event Hub profile details and credentials."
-        badge={{ text: role ? role.toUpperCase() : "STUDENT", variant: "indigo" }}
-        actions={
-          <Button
-            onClick={handleOpenEdit}
-            size="sm"
-            className="rounded-xl text-xs bg-[#004D61] hover:bg-[#003847] text-white font-bold gap-1.5 h-9 shadow-2xs cursor-pointer"
-          >
-            <Edit2 className="w-3.5 h-3.5" />
-            <span>{role === "admin" ? "Edit Profile" : "Edit Institutional Profile"}</span>
-          </Button>
-        }
-      />
+        title="Institutional Profile"
+        description="Manage your official Apollo University School of Technology records, credentials, and contact details."
+      >
+        <Button
+          onClick={handleOpenEdit}
+          className="rounded-xl text-xs bg-[#004D61] hover:bg-[#003847] text-white font-bold gap-2 cursor-pointer shadow-xs"
+        >
+          <Edit2 className="w-3.5 h-3.5" />
+          <span>Edit Profile</span>
+        </Button>
+      </PageHeader>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pb-16">
-        {/* Profile Completeness Alert if Incomplete */}
-        {!isProfileComplete && (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
-            <div className="flex items-center gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-              <div>
-                <strong className="text-xs font-bold text-amber-900 block">Profile Information Incomplete</strong>
-                <span className="text-[11px] text-amber-700">
-                  Please complete the following required fields to enable instant event bookings:{" "}
-                  <strong>{missingProfileFields.join(", ")}</strong>
-                </span>
+      {/* Profile Completeness Alert Banner */}
+      {!isProfileComplete && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3 text-amber-800">
+          <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <h4 className="text-xs font-bold">Profile Incomplete</h4>
+            <p className="text-xs text-amber-700">
+              Please complete your mandatory profile fields (
+              {missingProfileFields.join(", ")}) to unlock full event registration and pass generation capabilities.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={handleOpenEdit}
+            className="ml-auto bg-amber-600 hover:bg-amber-700 text-white text-xs rounded-xl shrink-0"
+          >
+            Complete Now
+          </Button>
+        </div>
+      )}
+
+      {/* Main Profile Summary Card */}
+      <Card className="rounded-3xl border-slate-200/90 shadow-2xs overflow-hidden">
+        <div className="bg-gradient-to-r from-[#004D61] to-[#007A99] p-6 sm:p-8 text-white relative">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white text-2xl sm:text-3xl font-extrabold shadow-inner">
+                {userDisplayName.charAt(0).toUpperCase()}
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-xl sm:text-2xl font-black tracking-tight">{userDisplayName}</h2>
+                  <Badge className="bg-white/20 text-white border-white/30 text-[11px] font-bold uppercase tracking-wider backdrop-blur-xs">
+                    {role}
+                  </Badge>
+                  {status === "ACTIVE" && (
+                    <Badge className="bg-emerald-500/30 text-emerald-200 border-emerald-400/40 text-[11px] font-semibold flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>Verified</span>
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-cyan-100 flex items-center gap-1.5 font-medium">
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{userEmail}</span>
+                </p>
               </div>
             </div>
+
             <Button
-              onClick={handleOpenEdit}
-              size="sm"
               variant="outline"
-              className="rounded-xl text-xs border-amber-300 bg-white hover:bg-amber-100 text-amber-900 font-bold shrink-0"
+              size="sm"
+              onClick={handleOpenEdit}
+              className="bg-white/10 hover:bg-white/20 text-white border-white/30 rounded-xl text-xs gap-1.5"
             >
-              Complete Now
+              <Edit2 className="w-3.5 h-3.5" />
+              <span>Update Details</span>
             </Button>
           </div>
-        )}
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Identity Summary Card */}
-          <Card className="border-slate-200 shadow-2xs bg-white rounded-3xl overflow-hidden">
-            <CardHeader className="text-center pb-4">
-              <div className="w-20 h-20 rounded-2xl bg-[#004D61] text-white flex items-center justify-center mx-auto mb-2 text-2xl font-bold shadow-md">
-                {userDisplayName
-                  .split(" ")
-                  .map((n: string) => n[0])
-                  .join("")
-                  .substring(0, 2)
-                  .toUpperCase()}
+        {/* Profile Details Sections */}
+        <CardContent className="p-6 sm:p-8 space-y-8 bg-white">
+          {/* SECTION 1: PERSONAL & CONTACT INFORMATION */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <UserIcon className="w-4 h-4 text-[#007A99]" />
+              <span>Personal &amp; Contact Records</span>
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                <span className="text-[11px] font-semibold text-slate-400 block">Full Name</span>
+                <span className="text-xs sm:text-sm font-bold text-slate-800">{userDisplayName}</span>
               </div>
-              <CardTitle className="text-lg font-bold text-slate-900">{userDisplayName}</CardTitle>
-              <CardDescription className="text-xs font-mono">{userEmail}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 pt-2 text-xs border-t">
-              <div className="flex justify-between items-center py-1">
-                <span className="text-slate-500">Account Status</span>
-                <Badge variant={status === "ACTIVE" ? "emerald" : "amber"}>{status || "ACTIVE"}</Badge>
-              </div>
-              <div className="flex justify-between items-center py-1">
-                <span className="text-slate-500">Institutional Role</span>
-                <Badge variant="indigo" className="capitalize font-bold">{role || "student"}</Badge>
-              </div>
-              <div className="flex justify-between items-center py-1">
-                <span className="text-slate-500">SSO Provider</span>
-                <span className="font-semibold text-slate-800 text-[11px]">{userSso}</span>
-              </div>
-              <div className="flex justify-between items-center py-1">
-                <span className="text-slate-500">Profile Status</span>
-                {isProfileComplete ? (
-                  <Badge variant="emerald" className="gap-1 text-[10px] font-bold">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span>Verified &amp; Complete</span>
-                  </Badge>
-                ) : (
-                  <Badge variant="amber" className="text-[10px]">
-                    Action Required
-                  </Badge>
-                )}
-              </div>
-              <div className="pt-3 border-t">
-                <Button
-                  onClick={handleOpenEdit}
-                  variant="outline"
-                  size="sm"
-                  className="w-full rounded-xl text-xs gap-1.5 h-8 font-semibold"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                  <span>Update Profile</span>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* Role-Specific Credentials & Details Card */}
-          <Card className="border-slate-200 shadow-2xs md:col-span-2 bg-white space-y-4 rounded-3xl">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2 text-slate-900">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span>
-                  {role === "faculty"
-                    ? "Verified Faculty & Institutional Credentials"
-                    : role === "admin"
-                    ? "Administrative Console Permissions"
-                    : "Verified Academic Credentials"}
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                <span className="text-[11px] font-semibold text-slate-400 block">Official Institutional Email</span>
+                <span className="text-xs sm:text-sm font-bold text-slate-800 break-all">{userEmail}</span>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                <span className="text-[11px] font-semibold text-slate-400 block">Contact Mobile Number</span>
+                <span className="text-xs sm:text-sm font-bold text-slate-800">
+                  {profile?.phoneNumber || profile?.phone || "Not Provided"}
                 </span>
-              </CardTitle>
-              <CardDescription className="text-xs">
-                {role === "admin"
-                  ? "Official administrative console record for university governance and event oversight."
-                  : "Official records synchronized with Microsoft Entra ID and the B.Tech campus registry."}
-              </CardDescription>
-            </CardHeader>
+              </div>
 
-            <CardContent className="space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* 1. STUDENT CREDENTIALS */}
+              {profile?.personalEmail && (
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1 sm:col-span-2 md:col-span-3">
+                  <span className="text-[11px] font-semibold text-slate-400 block">Personal Alternate Email</span>
+                  <span className="text-xs sm:text-sm font-bold text-slate-800 break-all">
+                    {profile.personalEmail}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* SECTION 2: ACADEMIC / INSTITUTIONAL INFORMATION */}
+          {role !== "admin" && (
+            <div className="space-y-4 pt-4 border-t border-slate-100">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                {role === "student" ? (
+                  <>
+                    <GraduationCap className="w-4 h-4 text-[#007A99]" />
+                    <span>Academic &amp; Programme Details</span>
+                  </>
+                ) : (
+                  <>
+                    <Briefcase className="w-4 h-4 text-[#007A99]" />
+                    <span>Faculty &amp; Department Credentials</span>
+                  </>
+                )}
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1 sm:col-span-2">
+                  <span className="text-[11px] font-semibold text-slate-400 block">B.Tech Programme / Stream</span>
+                  <span className="text-xs sm:text-sm font-bold text-[#004D61]">
+                    {userBTechProgramme}
+                  </span>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                  <span className="text-[11px] font-semibold text-slate-400 block">School / Faculty</span>
+                  <span className="text-xs sm:text-sm font-bold text-slate-800">
+                    School of Technology (B.Tech)
+                  </span>
+                </div>
+
                 {role === "student" && (
                   <>
-                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
-                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                        <BookOpen className="w-3.5 h-3.5 text-[#007A99]" />
-                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                          B.Tech Programme / Stream
-                        </span>
-                      </div>
-                      <div className="font-bold text-slate-900 text-sm">{userBTechProgramme}</div>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                      <span className="text-[11px] font-semibold text-slate-400 block">Student Roll Number</span>
+                      <span className="text-xs sm:text-sm font-bold font-mono text-slate-800">
+                        {userRollNumber || "Not Configured"}
+                      </span>
                     </div>
 
-                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
-                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                        <Hash className="w-3.5 h-3.5 text-[#007A99]" />
-                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                          Student Roll Number
-                        </span>
-                      </div>
-                      <div className="font-mono font-bold text-slate-900">
-                        {userRollNumber || <span className="text-amber-600 font-normal italic">Not provided</span>}
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
-                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                        <GraduationCap className="w-3.5 h-3.5 text-[#007A99]" />
-                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                          Year of Study
-                        </span>
-                      </div>
-                      <div className="font-bold text-slate-900">
-                        {profile?.year || (profile as any)?.yearOfStudy || "3rd Year (B.Tech / UG)"}
-                      </div>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                      <span className="text-[11px] font-semibold text-slate-400 block">Year of Study</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-800">
+                        {profile?.year || (profile as any)?.yearOfStudy || "Not Configured"}
+                      </span>
                     </div>
                   </>
                 )}
 
-                {/* 2. FACULTY CREDENTIALS */}
                 {role === "faculty" && (
                   <>
-                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
-                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                        <Building2 className="w-3.5 h-3.5 text-[#007A99]" />
-                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                          B.Tech Department / Programme
-                        </span>
-                      </div>
-                      <div className="font-bold text-slate-900 text-sm">{userBTechProgramme}</div>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                      <span className="text-[11px] font-semibold text-slate-400 block">Faculty / Employee ID</span>
+                      <span className="text-xs sm:text-sm font-bold font-mono text-slate-800">
+                        {userEmployeeId || "Not Configured"}
+                      </span>
                     </div>
 
-                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
-                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                        <Hash className="w-3.5 h-3.5 text-[#007A99]" />
-                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                          Faculty / Employee ID
-                        </span>
-                      </div>
-                      <div className="font-mono font-bold text-slate-900">
-                        {userEmployeeId || <span className="text-amber-600 font-normal italic">Not provided</span>}
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
-                      <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                        <Briefcase className="w-3.5 h-3.5 text-[#007A99]" />
-                        <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                          Academic Designation
-                        </span>
-                      </div>
-                      <div className="font-bold text-slate-900">
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                      <span className="text-[11px] font-semibold text-slate-400 block">Academic Designation</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-800">
                         {profile?.designation || "Assistant Professor"}
-                      </div>
+                      </span>
                     </div>
 
                     {profile?.expertise && (
-                      <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
-                        <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                          <BookOpen className="w-3.5 h-3.5 text-[#007A99]" />
-                          <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                            Area of Expertise / Research
-                          </span>
-                        </div>
-                        <div className="text-slate-800 font-medium">{profile.expertise}</div>
+                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1 sm:col-span-2 md:col-span-3">
+                        <span className="text-[11px] font-semibold text-slate-400 block">Research Expertise</span>
+                        <span className="text-xs sm:text-sm font-bold text-slate-800">
+                          {profile.expertise}
+                        </span>
                       </div>
                     )}
                   </>
                 )}
-
-                {/* 3. ADMIN CREDENTIALS */}
-                {role === "admin" && (
-                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
-                    <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                      <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                        Administrative Authority
-                      </span>
-                    </div>
-                    <div className="font-bold text-slate-900 text-sm">
-                      {profile?.adminRole || "System Administrator • Full Platform Oversight"}
-                    </div>
-                  </div>
-                )}
-
-                {/* Common Contact Fields */}
-                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
-                  <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                    <Phone className="w-3.5 h-3.5 text-[#007A99]" />
-                    <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                      Mobile Contact
-                    </span>
-                  </div>
-                  <div className="font-semibold text-slate-900">{userPhone}</div>
-                </div>
-
-                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
-                  <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                    <Mail className="w-3.5 h-3.5 text-[#007A99]" />
-                    <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                      Official University Email
-                    </span>
-                  </div>
-                  <div className="font-semibold text-slate-900 truncate font-mono text-[11px]">{userEmail}</div>
-                </div>
-
-                {role !== "admin" && (
-                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
-                    <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                      <Mail className="w-3.5 h-3.5 text-[#007A99]" />
-                      <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                        Personal Alternate Email
-                      </span>
-                    </div>
-                    <div className="font-semibold text-slate-900">{userPersonalEmail}</div>
-                  </div>
-                )}
-
-                {role === "student" && profile?.emergencyContactName && (
-                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 sm:col-span-2">
-                    <div className="text-slate-500 flex items-center gap-1.5 mb-1">
-                      <HeartHandshake className="w-3.5 h-3.5 text-rose-500" />
-                      <span className="font-bold text-[11px] uppercase tracking-wider text-slate-400">
-                        Emergency Contact Dossier
-                      </span>
-                    </div>
-                    <div className="font-medium text-slate-800">
-                      {profile.emergencyContactName}{" "}
-                      {profile.emergencyContactRelation ? `(${profile.emergencyContactRelation})` : ""} &bull;{" "}
-                      <span className="font-mono font-bold text-slate-900">
-                        {profile.emergencyContactPhone || "No phone on file"}
-                      </span>
-                    </div>
-                  </div>
-                )}
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+            </div>
+          )}
 
-      {/* Role-Aware Edit Profile Dialog Modal */}
+          {/* SECTION 3: STUDENT EMERGENCY CONTACT */}
+          {role === "student" && (
+            <div className="space-y-4 pt-4 border-t border-slate-100">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                <HeartHandshake className="w-4 h-4 text-rose-500" />
+                <span>Emergency Contact Records</span>
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                  <span className="text-[11px] font-semibold text-slate-400 block">Contact Name</span>
+                  <span className="text-xs sm:text-sm font-bold text-slate-800">
+                    {profile?.emergencyContactName || "Not Configured"}
+                  </span>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                  <span className="text-[11px] font-semibold text-slate-400 block">Contact Phone</span>
+                  <span className="text-xs sm:text-sm font-bold text-slate-800">
+                    {profile?.emergencyContactPhone || "Not Configured"}
+                  </span>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                  <span className="text-[11px] font-semibold text-slate-400 block">Relationship</span>
+                  <span className="text-xs sm:text-sm font-bold text-slate-800">
+                    {profile?.emergencyContactRelation || "Not Configured"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ========================================================================= */}
+      {/* EDIT INSTITUTIONAL PROFILE MODAL */}
+      {/* ========================================================================= */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 bg-white border border-slate-200 shadow-2xl">
-          <form onSubmit={handleSaveProfile} className="space-y-5">
-            <DialogHeader className="border-b pb-3 text-left">
-              <DialogTitle className="text-lg font-black text-slate-900 flex items-center gap-2">
-                <Edit2 className="w-4 h-4 text-[#007A99]" />
-                <span>{role === "admin" ? "Edit Profile" : "Edit Institutional Profile"}</span>
+        <DialogContent className="max-w-2xl rounded-3xl p-6 sm:p-8 max-h-[90vh] overflow-y-auto">
+          <form onSubmit={handleSaveProfile} className="space-y-6" noValidate>
+            <DialogHeader className="text-left space-y-1">
+              <DialogTitle className="text-lg sm:text-xl font-bold text-slate-900">
+                {role === "admin" ? "Edit Profile" : "Edit Institutional Profile"}
               </DialogTitle>
               <DialogDescription className="text-xs text-slate-500">
                 {role === "student"
@@ -517,11 +487,18 @@ export const ProfilePage: React.FC = () => {
                     <Label className="text-xs font-bold text-slate-700">Full Name *</Label>
                     <Input
                       value={displayName}
-                      onChange={(e) => setDisplayName(e.target.value)}
+                      onChange={(e) => {
+                        setDisplayName(e.target.value);
+                        clearError("displayName");
+                      }}
                       placeholder="e.g. Rahul Sharma"
-                      required
-                      className="h-9 text-xs rounded-xl"
+                      className={`h-9 text-xs rounded-xl ${
+                        errors.displayName ? "border-rose-400 ring-2 ring-rose-100" : ""
+                      }`}
                     />
+                    {errors.displayName && (
+                      <p className="text-[11px] text-rose-600 font-medium">{errors.displayName}</p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">
@@ -529,16 +506,23 @@ export const ProfilePage: React.FC = () => {
                     <Input
                       type="tel"
                       value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      onChange={(e) => {
+                        setPhoneNumber(e.target.value);
+                        clearError("phoneNumber");
+                      }}
                       placeholder="e.g. 9876543210"
-                      required
-                      className="h-9 text-xs rounded-xl"
+                      className={`h-9 text-xs rounded-xl ${
+                        errors.phoneNumber ? "border-rose-400 ring-2 ring-rose-100" : ""
+                      }`}
                     />
+                    {errors.phoneNumber && (
+                      <p className="text-[11px] text-rose-600 font-medium">{errors.phoneNumber}</p>
+                    )}
                   </div>
 
                   {role !== "admin" && (
                     <div className="space-y-1.5 sm:col-span-2">
-                      <Label className="text-xs font-bold text-slate-700">Personal Alternate Email</Label>
+                      <Label className="text-xs font-bold text-slate-700">Personal Alternate Email (Optional)</Label>
                       <Input
                         type="email"
                         value={personalEmail}
@@ -575,17 +559,34 @@ export const ProfilePage: React.FC = () => {
                       <Label className="text-xs font-bold text-slate-700">Student Roll Number *</Label>
                       <Input
                         value={rollNumber}
-                        onChange={(e) => setRollNumber(e.target.value)}
+                        onChange={(e) => {
+                          setRollNumber(e.target.value);
+                          clearError("rollNumber");
+                        }}
                         placeholder="e.g. 21BCE10234"
-                        required
-                        className="h-9 text-xs font-mono rounded-xl"
+                        className={`h-9 text-xs font-mono rounded-xl ${
+                          errors.rollNumber ? "border-rose-400 ring-2 ring-rose-100" : ""
+                        }`}
                       />
+                      {errors.rollNumber && (
+                        <p className="text-[11px] text-rose-600 font-medium">{errors.rollNumber}</p>
+                      )}
                     </div>
 
                     <div className="space-y-1.5">
                       <Label className="text-xs font-bold text-slate-700">Year of Study *</Label>
-                      <Select value={year} onValueChange={setYear}>
-                        <SelectTrigger className="h-9 text-xs bg-white rounded-xl">
+                      <Select
+                        value={year}
+                        onValueChange={(val) => {
+                          setYear(val);
+                          clearError("year");
+                        }}
+                      >
+                        <SelectTrigger
+                          className={`h-9 text-xs bg-white rounded-xl ${
+                            errors.year ? "border-rose-400 ring-2 ring-rose-100" : ""
+                          }`}
+                        >
                           <SelectValue placeholder="Select Year of Study" />
                         </SelectTrigger>
                         <SelectContent>
@@ -596,12 +597,25 @@ export const ProfilePage: React.FC = () => {
                           ))}
                         </SelectContent>
                       </Select>
+                      {errors.year && (
+                        <p className="text-[11px] text-rose-600 font-medium">{errors.year}</p>
+                      )}
                     </div>
 
                     <div className="space-y-1.5 sm:col-span-2">
                       <Label className="text-xs font-bold text-slate-700">B.Tech Programme *</Label>
-                      <Select value={btechProgramme} onValueChange={setBtechProgramme}>
-                        <SelectTrigger className="h-9 text-xs bg-white rounded-xl">
+                      <Select
+                        value={btechProgramme}
+                        onValueChange={(val) => {
+                          setBtechProgramme(val);
+                          clearError("btechProgramme");
+                        }}
+                      >
+                        <SelectTrigger
+                          className={`h-9 text-xs bg-white rounded-xl ${
+                            errors.btechProgramme ? "border-rose-400 ring-2 ring-rose-100" : ""
+                          }`}
+                        >
                           <SelectValue placeholder="Select B.Tech Programme" />
                         </SelectTrigger>
                         <SelectContent>
@@ -612,6 +626,9 @@ export const ProfilePage: React.FC = () => {
                           ))}
                         </SelectContent>
                       </Select>
+                      {errors.btechProgramme && (
+                        <p className="text-[11px] text-rose-600 font-medium">{errors.btechProgramme}</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -629,17 +646,34 @@ export const ProfilePage: React.FC = () => {
                       <Label className="text-xs font-bold text-slate-700">Faculty / Employee ID *</Label>
                       <Input
                         value={employeeId}
-                        onChange={(e) => setEmployeeId(e.target.value)}
+                        onChange={(e) => {
+                          setEmployeeId(e.target.value);
+                          clearError("employeeId");
+                        }}
                         placeholder="e.g. EMP-CSE-409"
-                        required
-                        className="h-9 text-xs font-mono rounded-xl"
+                        className={`h-9 text-xs font-mono rounded-xl ${
+                          errors.employeeId ? "border-rose-400 ring-2 ring-rose-100" : ""
+                        }`}
                       />
+                      {errors.employeeId && (
+                        <p className="text-[11px] text-rose-600 font-medium">{errors.employeeId}</p>
+                      )}
                     </div>
 
                     <div className="space-y-1.5">
                       <Label className="text-xs font-bold text-slate-700">Designation *</Label>
-                      <Select value={designation} onValueChange={setDesignation}>
-                        <SelectTrigger className="h-9 text-xs bg-white rounded-xl">
+                      <Select
+                        value={designation}
+                        onValueChange={(val) => {
+                          setDesignation(val);
+                          clearError("designation");
+                        }}
+                      >
+                        <SelectTrigger
+                          className={`h-9 text-xs bg-white rounded-xl ${
+                            errors.designation ? "border-rose-400 ring-2 ring-rose-100" : ""
+                          }`}
+                        >
                           <SelectValue placeholder="Select Designation" />
                         </SelectTrigger>
                         <SelectContent>
@@ -650,12 +684,25 @@ export const ProfilePage: React.FC = () => {
                           ))}
                         </SelectContent>
                       </Select>
+                      {errors.designation && (
+                        <p className="text-[11px] text-rose-600 font-medium">{errors.designation}</p>
+                      )}
                     </div>
 
                     <div className="space-y-1.5 sm:col-span-2">
                       <Label className="text-xs font-bold text-slate-700">B.Tech Programme *</Label>
-                      <Select value={btechProgramme} onValueChange={setBtechProgramme}>
-                        <SelectTrigger className="h-9 text-xs bg-white rounded-xl">
+                      <Select
+                        value={btechProgramme}
+                        onValueChange={(val) => {
+                          setBtechProgramme(val);
+                          clearError("btechProgramme");
+                        }}
+                      >
+                        <SelectTrigger
+                          className={`h-9 text-xs bg-white rounded-xl ${
+                            errors.btechProgramme ? "border-rose-400 ring-2 ring-rose-100" : ""
+                          }`}
+                        >
                           <SelectValue placeholder="Select B.Tech Programme" />
                         </SelectTrigger>
                         <SelectContent>
@@ -666,6 +713,9 @@ export const ProfilePage: React.FC = () => {
                           ))}
                         </SelectContent>
                       </Select>
+                      {errors.btechProgramme && (
+                        <p className="text-[11px] text-rose-600 font-medium">{errors.btechProgramme}</p>
+                      )}
                     </div>
 
                     <div className="space-y-1.5 sm:col-span-2">
@@ -728,8 +778,11 @@ export const ProfilePage: React.FC = () => {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setIsEditDialogOpen(false)}
-                className="rounded-xl text-xs h-9"
+                onClick={() => {
+                  setIsEditDialogOpen(false);
+                  setErrors({});
+                }}
+                className="rounded-xl text-xs h-9 cursor-pointer"
               >
                 Cancel
               </Button>

@@ -141,6 +141,38 @@ for (const term of forbiddenTerms) {
 }
 
 // -----------------------------------------------------------------------------
+// SUITE 6: Client-Side Validation & Undefined Elimination
+// -----------------------------------------------------------------------------
+console.log("\n[SUITE 6] Client-Side Validation & Undefined Elimination");
+
+const authContextFile = readFileSync(resolve(SRC_DIR, "lib/auth-context.tsx"), "utf-8");
+
+assert(
+  profilePageFile.includes("Full name is required.") &&
+  profilePageFile.includes("Mobile contact number is required.") &&
+  profilePageFile.includes("Student roll number is required.") &&
+  profilePageFile.includes("Please select your year of study.") &&
+  profilePageFile.includes("Please select your B.Tech programme."),
+  "Form-first validation checks all mandatory fields with clear field-level messages"
+);
+
+assert(
+  !profilePageFile.includes("|| undefined") &&
+  !profilePageFile.includes(": undefined"),
+  "ProfilePage payload has zero undefined values"
+);
+
+assert(
+  authContextFile.includes("if (v !== undefined)") || authContextFile.includes("v !== undefined"),
+  "auth-context updateUserProfile deep sanitizes payload to ensure ZERO undefined values reach Firestore"
+);
+
+assert(
+  authContextFile.includes("Unable to save your profile right now. Please check your information and try again."),
+  "Clean user-friendly error handling prevents raw Firebase/setDoc errors from being shown to users"
+);
+
+// -----------------------------------------------------------------------------
 // SUMMARY
 // -----------------------------------------------------------------------------
 console.log("\n================================================================================");

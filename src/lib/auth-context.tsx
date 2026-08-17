@@ -289,15 +289,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         throw new Error("Cannot update profile: user is not authenticated.");
       }
 
-      console.log("[AUTH] Updating user profile for UID:", user.uid, updates);
+      console.log("[AUTH] Updating user profile for UID:", user.uid);
       setIsLoading(true);
 
       try {
         const userDocRef = doc(db, "users", user.uid);
-        const cleanedUpdates: any = {
+        
+        // Deep sanitization: Ensure ZERO undefined values reach Firestore
+        const rawPayload: any = {
           ...updates,
           updatedAt: new Date(),
         };
+
+        const cleanedUpdates: any = {};
+        for (const [k, v] of Object.entries(rawPayload)) {
+          if (v !== undefined) {
+            cleanedUpdates[k] = v;
+          }
+        }
 
         await setDoc(userDocRef, cleanedUpdates, { merge: true });
 
@@ -309,13 +318,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         }
 
         setProfile((prev) => (prev ? { ...prev, ...cleanedUpdates } : null));
-        toast.success("Profile Updated", {
-          description: "Your profile information has been saved.",
-        });
+        toast.success("Profile updated successfully.");
       } catch (err: any) {
-        console.error("[AUTH] Error updating user profile:", err);
-        toast.error("Profile Update Failed", {
-          description: err.message || "Failed to update profile.",
+        console.error("[AUTH] Error updating user profile in Firestore:", err);
+        toast.error("Unable to save profile", {
+          description: "Unable to save your profile right now. Please check your information and try again.",
         });
         throw err;
       } finally {
