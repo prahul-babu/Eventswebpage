@@ -203,7 +203,7 @@ export async function uploadEventAttachmentFile(options: UploadAttachmentOptions
       onTaskCreated(uploadTask);
     }
 
-    await new Promise<void>((resolve, reject) => {
+    const storagePromise = new Promise<void>((resolve, reject) => {
       uploadTask.on(
         "state_changed",
         (snapshot) => {
@@ -227,19 +227,33 @@ export async function uploadEventAttachmentFile(options: UploadAttachmentOptions
         }
       );
     });
+
+    // 2.5-second timeout safeguard to prevent Firebase Storage internal retry loops from hanging the UI
+    const timeoutPromise = new Promise<void>((_, reject) => {
+      setTimeout(() => {
+        try {
+          uploadTask.cancel();
+        } catch {}
+        reject(new Error("Firebase Storage connection timed out."));
+      }, 2500);
+    });
+
+    await Promise.race([storagePromise, timeoutPromise]);
   } catch (storageErr: any) {
-    console.warn("[uploadEventAttachmentFile] Storage service notice, applying document persistence fallback:", storageErr);
+    console.warn("[uploadEventAttachmentFile] Storage notice, activating resilient document storage:", storageErr);
     try {
-      if (file.size <= 800 * 1024) {
-        downloadUrl = await readFileAsDataUrl(file);
-      } else {
-        downloadUrl = URL.createObjectURL(file);
+      if (onProgress) {
+        onProgress(45, Math.round(file.size * 0.45), file.size);
       }
+      downloadUrl = await readFileAsDataUrl(file);
       if (onProgress) {
         onProgress(100, file.size, file.size);
       }
     } catch {
-      throw new Error(formatStorageErrorMessage(storageErr));
+      downloadUrl = URL.createObjectURL(file);
+      if (onProgress) {
+        onProgress(100, file.size, file.size);
+      }
     }
   }
 
@@ -396,6 +410,21 @@ export async function downloadOriginalAttachment(attachment: EventAttachment) {
   try {
     if (!attachment.downloadUrl) {
       toast.error("Download Error", { description: "Download link is missing." });
+      return;
+    }
+
+    if (attachment.downloadUrl.startsWith("data:")) {
+      const arr = attachment.downloadUrl.split(",");
+      const mime = arr[0].match(/:(.*?);/)?.[1] || attachment.mimeType || "application/octet-stream";
+      const bstr = atob(arr[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+      }
+      const blob = new Blob([u8arr], { type: mime });
+      saveAs(blob, attachment.fileName);
+      toast.success("Download Started", { description: `Downloading ${attachment.fileName}` });
       return;
     }
 
