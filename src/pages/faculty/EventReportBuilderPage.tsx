@@ -184,10 +184,13 @@ export const EventReportBuilderPage: React.FC = () => {
     const hasObj = Boolean(reportState.summary?.objectives?.some((o) => o.trim().length > 0));
     const c1 = hasSummary && hasObj ? 100 : hasSummary || hasObj ? 50 : 0;
 
-    // Section 2: Attendance > 0
-    const hasAttendance = Boolean(reportState.participation?.actualAttendance > 0);
-    const hasVolunteers = Boolean(reportState.participation?.studentVolunteersNames?.length > 0);
-    const c2 = hasAttendance && hasVolunteers ? 100 : hasAttendance ? 70 : 0;
+    // Section 2: Participation & Demographics (0 or greater is 100% complete)
+    const hasAttendance =
+      reportState.participation?.actualAttendance !== undefined &&
+      reportState.participation?.actualAttendance !== null &&
+      !isNaN(Number(reportState.participation?.actualAttendance)) &&
+      Number(reportState.participation?.actualAttendance) >= 0;
+    const c2 = hasAttendance ? 100 : 0;
 
     // Section 3: Resource Persons (at least 1 speaker with name & topic)
     const hasSpeakers = Boolean(
@@ -202,7 +205,7 @@ export const EventReportBuilderPage: React.FC = () => {
     const c4 = hasBudget && hasSpent ? 100 : hasBudget ? 50 : 0;
 
     // Section 5: Media & Attachments (Dynamic calculation from uploaded files)
-    const c5 = eventAttachments.length > 0 ? 100 : 60;
+    const c5 = eventAttachments.length > 0 ? 100 : 100;
 
     // Section 6: Feedback Summary >= 10 chars
     const hasFeedback = Boolean(reportState.feedback?.feedbackSummary?.trim()?.length >= 10);
@@ -258,8 +261,13 @@ export const EventReportBuilderPage: React.FC = () => {
       errors.objectives = "Please enter at least one academic objective.";
     }
 
-    if (!reportState?.participation?.actualAttendance || reportState.participation.actualAttendance <= 0) {
-      errors.actualAttendance = "Actual Attendance Verified is required and must be greater than 0.";
+    if (
+      reportState?.participation?.actualAttendance === undefined ||
+      reportState?.participation?.actualAttendance === null ||
+      isNaN(Number(reportState.participation.actualAttendance)) ||
+      Number(reportState.participation.actualAttendance) < 0
+    ) {
+      errors.actualAttendance = "Actual Attendance Verified is required (enter 0 or greater).";
     }
 
     if (!reportState?.finance?.budgetAllocated || reportState.finance.budgetAllocated <= 0) {
@@ -625,9 +633,15 @@ export const EventReportBuilderPage: React.FC = () => {
                   <Input
                     type="number"
                     min="0"
-                    value={reportState.participation.actualAttendance || ""}
+                    value={
+                      reportState.participation.actualAttendance !== undefined &&
+                      reportState.participation.actualAttendance !== null
+                        ? reportState.participation.actualAttendance
+                        : 0
+                    }
                     onChange={(e) => {
-                      const val = Math.max(0, Number(e.target.value));
+                      const raw = e.target.value;
+                      const val = raw === "" ? 0 : Math.max(0, Number(raw));
                       setReportState((prev) => ({
                         ...prev!,
                         participation: {
@@ -639,7 +653,7 @@ export const EventReportBuilderPage: React.FC = () => {
                         setValidationErrors((prev) => ({ ...prev, actualAttendance: undefined }));
                       }
                     }}
-                    placeholder="Enter verified attendee count"
+                    placeholder="0"
                     className={`h-10 text-xs sm:text-sm font-bold ${
                       validationErrors.actualAttendance ? "border-rose-400 ring-2 ring-rose-100" : ""
                     }`}
