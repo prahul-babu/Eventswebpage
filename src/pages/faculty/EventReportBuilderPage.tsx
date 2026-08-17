@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { format } from "date-fns";
 import {
@@ -42,10 +42,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  EventReport,
-  ResourcePerson,
-} from "@/types";
+import { EventReport, ResourcePerson } from "@/types";
 import { toast } from "sonner";
 
 const SECTIONS = [
@@ -56,6 +53,16 @@ const SECTIONS = [
   { id: 5, name: "Media & Attachments", icon: ImageIcon, desc: "Photos, videos & original files" },
   { id: 6, name: "Feedback & Impact", icon: MessageSquare, desc: "Ratings & student quotes" },
 ];
+
+interface FormErrors {
+  executiveSummary?: string;
+  objectives?: string;
+  actualAttendance?: string;
+  speakers?: string;
+  budgetAllocated?: string;
+  budgetSpent?: string;
+  feedbackSummary?: string;
+}
 
 export const EventReportBuilderPage: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
@@ -73,15 +80,20 @@ export const EventReportBuilderPage: React.FC = () => {
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [isAutosaving, setIsAutosaving] = useState(false);
   const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<FormErrors>({});
 
   // Form State
   const [reportState, setReportState] = useState<EventReport | null>(null);
+  const isInitializedRef = useRef(false);
 
-  // Initialize Report State from existing report or event defaults
+  // Initialize Report State from existing report or event defaults ONCE
   useEffect(() => {
+    if (isInitializedRef.current) return;
+
     if (existingReport) {
       setReportState(existingReport);
-    } else if (event && !reportState) {
+      isInitializedRef.current = true;
+    } else if (event) {
       const initial: EventReport = {
         id: event.id,
         eventId: event.id,
@@ -89,7 +101,7 @@ export const EventReportBuilderPage: React.FC = () => {
         category: event.category,
         eventDate: event.startAt,
         venueLocation: event.venueLocation,
-        department: event.department || profile?.department || "The Apollo University",
+        department: event.department || profile?.department || "School of Technology (B.Tech)",
         organiserId: event.organiserId,
         organiserName: event.organiserName,
         organiserEmail: event.organiserEmail,
@@ -145,19 +157,43 @@ export const EventReportBuilderPage: React.FC = () => {
         updatedAt: new Date(),
       };
       setReportState(initial);
+      isInitializedRef.current = true;
     }
-  }, [existingReport, event, profile, regMetrics, reportState]);
+  }, [existingReport, event, profile?.department, regMetrics]);
 
-  // Section Completeness Calculation
+  // Section Completeness Calculation (Real dynamic calculation)
   const sectionCompleteness = useMemo(() => {
     if (!reportState) return { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
 
-    const c1 = reportState.summary.executiveSummary.trim().length > 30 ? 100 : 0;
-    const c2 = reportState.participation.actualAttendance > 0 ? 100 : 0;
-    const c3 = reportState.resourcePersons.length > 0 ? 100 : 50;
-    const c4 = reportState.finance.budgetSpent > 0 || reportState.finance.expenses.length > 0 ? 100 : 50;
-    const c5 = 100; // Media section
-    const c6 = reportState.feedback.feedbackSummary.trim().length > 10 ? 100 : 50;
+    // Section 1: Executive summary (min 15 chars) + at least 1 non-empty objective
+    const hasSummary = Boolean(reportState.summary?.executiveSummary?.trim()?.length >= 15);
+    const hasObj = Boolean(reportState.summary?.objectives?.some((o) => o.trim().length > 0));
+    const c1 = hasSummary && hasObj ? 100 : hasSummary || hasObj ? 50 : 0;
+
+    // Section 2: Attendance > 0
+    const hasAttendance = Boolean(reportState.participation?.actualAttendance > 0);
+    const hasVolunteers = Boolean(reportState.participation?.studentVolunteersNames?.length > 0);
+    const c2 = hasAttendance && hasVolunteers ? 100 : hasAttendance ? 70 : 0;
+
+    // Section 3: Resource Persons (at least 1 speaker with name & topic)
+    const hasSpeakers = Boolean(
+      reportState.resourcePersons?.length > 0 &&
+      reportState.resourcePersons.every((rp) => rp.name?.trim() && rp.sessionTopic?.trim())
+    );
+    const c3 = hasSpeakers ? 100 : reportState.resourcePersons?.length > 0 ? 50 : 0;
+
+    // Section 4: Budget Allocated > 0 and Spent >= 0
+    const hasBudget = Boolean(reportState.finance?.budgetAllocated > 0);
+    const hasSpent = Boolean(reportState.finance?.budgetSpent >= 0);
+    const c4 = hasBudget && hasSpent ? 100 : hasBudget ? 50 : 0;
+
+    // Section 5: Media & Attachments
+    const c5 = 100;
+
+    // Section 6: Feedback Summary >= 10 chars
+    const hasFeedback = Boolean(reportState.feedback?.feedbackSummary?.trim()?.length >= 10);
+    const hasQuotes = Boolean(reportState.feedback?.participantQuotes?.length > 0);
+    const c6 = hasFeedback && hasQuotes ? 100 : hasFeedback ? 75 : 0;
 
     return { 1: c1, 2: c2, 3: c3, 4: c4, 5: c5, 6: c6 };
   }, [reportState]);
@@ -168,7 +204,7 @@ export const EventReportBuilderPage: React.FC = () => {
     return Math.round(sum / values.length);
   }, [sectionCompleteness]);
 
-  // Autosave Draft Callback
+  // Autosave / Manual Save Draft Callback
   const handleSaveDraft = useCallback(
     async (silent = false) => {
       if (!eventId || !reportState) return;
@@ -180,10 +216,14 @@ export const EventReportBuilderPage: React.FC = () => {
         });
         setLastSaved(format(new Date(), "HH:mm:ss"));
         if (!silent) {
-          toast.success("Report Draft Saved", { description: `Saved at ${format(new Date(), "HH:mm")}` });
+          toast.success("Report Draft Saved", {
+            description: `All entered report data saved at ${format(new Date(), "HH:mm:ss")}.`,
+          });
         }
       } catch (err: any) {
-        if (!silent) toast.error("Autosave Failed", { description: err.message });
+        if (!silent) {
+          toast.error("Save Draft Failed", { description: err.message || "Could not save report draft." });
+        }
       } finally {
         if (!silent) setIsAutosaving(false);
       }
@@ -191,28 +231,81 @@ export const EventReportBuilderPage: React.FC = () => {
     [eventId, reportState, saveReportDraftMutation]
   );
 
-  // 30s Autosave timer
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (reportState?.summary?.executiveSummary) {
-        handleSaveDraft(true);
-      }
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [handleSaveDraft, reportState?.summary?.executiveSummary]);
+  // Validate Report Required Fields before submission
+  const validateForm = (): boolean => {
+    const errors: FormErrors = {};
+
+    if (!reportState?.summary?.executiveSummary?.trim() || reportState.summary.executiveSummary.trim().length < 15) {
+      errors.executiveSummary = "Executive Summary is required (minimum 15 characters).";
+    }
+
+    const hasValidObjective = reportState?.summary?.objectives?.some((o) => o.trim().length > 0);
+    if (!hasValidObjective) {
+      errors.objectives = "Please enter at least one academic objective.";
+    }
+
+    if (!reportState?.participation?.actualAttendance || reportState.participation.actualAttendance <= 0) {
+      errors.actualAttendance = "Actual Attendance Verified is required and must be greater than 0.";
+    }
+
+    if (!reportState?.finance?.budgetAllocated || reportState.finance.budgetAllocated <= 0) {
+      errors.budgetAllocated = "Budget Allocated is required.";
+    }
+
+    if (reportState?.finance?.budgetSpent === undefined || reportState.finance.budgetSpent === null) {
+      errors.budgetSpent = "Total Spent is required.";
+    }
+
+    if (!reportState?.feedback?.feedbackSummary?.trim() || reportState.feedback.feedbackSummary.trim().length < 10) {
+      errors.feedbackSummary = "Feedback Summary is required (minimum 10 characters).";
+    }
+
+    setValidationErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      if (errors.executiveSummary || errors.objectives) setActiveSection(1);
+      else if (errors.actualAttendance) setActiveSection(2);
+      else if (errors.budgetAllocated || errors.budgetSpent) setActiveSection(4);
+      else if (errors.feedbackSummary) setActiveSection(6);
+      return false;
+    }
+
+    return true;
+  };
 
   // Submit Handler
+  const handleInitiateSubmit = () => {
+    if (!validateForm()) {
+      toast.error("Required Fields Missing", {
+        description: "Please complete all required fields highlighted in red before final submission.",
+      });
+      return;
+    }
+    setSubmitDialogOpen(true);
+  };
+
   const handleConfirmSubmit = async () => {
-    if (!eventId) return;
+    if (!eventId || !reportState) return;
     try {
+      const finalReportPayload: EventReport = {
+        ...reportState,
+        status: "SUBMITTED",
+        submittedAt: new Date(),
+        updatedAt: new Date(),
+      };
+
       await submitReportMutation.mutateAsync({
         eventId,
-        reportData: reportState || undefined,
+        reportData: finalReportPayload,
       });
+
       setSubmitDialogOpen(false);
+      toast.success("Post-Event Report Submitted!", {
+        description: "Your report has been submitted to the Academic Quality Board for official review.",
+      });
       navigate("/faculty/reports");
     } catch (err: any) {
-      console.error("[handleConfirmSubmit] submission error:", err);
+      toast.error("Submission Failed", { description: err.message || "Failed to submit report." });
     }
   };
 
@@ -259,7 +352,7 @@ export const EventReportBuilderPage: React.FC = () => {
                   ? "amber"
                   : "secondary"
               }
-              className="text-xs"
+              className="text-xs font-bold"
             >
               {reportState.status}
             </Badge>
@@ -272,7 +365,7 @@ export const EventReportBuilderPage: React.FC = () => {
         {/* Completeness & Export Actions */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Completeness Gauge */}
-          <div className="flex items-center gap-2 bg-slate-50 border px-3 py-1.5 rounded-2xl">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-2xl">
             <div className="text-right">
               <span className="text-[10px] text-slate-400 font-bold uppercase block">Completeness</span>
               <span className="text-xs font-extrabold text-[#004D61]">{overallCompleteness}% Complete</span>
@@ -283,7 +376,7 @@ export const EventReportBuilderPage: React.FC = () => {
           </div>
 
           {lastSaved && (
-            <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-medium text-slate-500 bg-slate-50 border px-2.5 py-1 rounded-full">
+            <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-medium text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-full">
               <Clock className="w-3 h-3 text-emerald-600" />
               <span>Saved at {lastSaved}</span>
             </div>
@@ -326,7 +419,7 @@ export const EventReportBuilderPage: React.FC = () => {
                   key={sec.id}
                   type="button"
                   onClick={() => setActiveSection(sec.id)}
-                  className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all ${
+                  className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all cursor-pointer ${
                     active
                       ? "bg-[#004D61] text-white shadow-xs"
                       : "bg-white hover:bg-slate-100 text-slate-700 border border-slate-100"
@@ -372,16 +465,16 @@ export const EventReportBuilderPage: React.FC = () => {
         {/* Right Column: Active Section Form Editor (8 cols) */}
         <div className="lg:col-span-8 bg-white border border-slate-200/90 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xs">
           {/* =================================================================== */}
-          {/* SECTION 1: EXECUTIVE SUMMARY */}
+          {/* SECTION 1: EXECUTIVE SUMMARY & OBJECTIVES */}
           {/* =================================================================== */}
           {activeSection === 1 && (
-            <div className="space-y-6 animate-fade-in">
+            <div className="space-y-6">
               <div className="space-y-1">
                 <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                  Section 1: Executive Summary &amp; Objectives
+                  Section 1: Event Summary &amp; Objectives
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Provide an overview of the event, its purpose, and core objectives achieved.
+                  Provide an executive overview of the event, distinguished attendees, key insights, and academic objectives achieved.
                 </p>
               </div>
 
@@ -393,29 +486,36 @@ export const EventReportBuilderPage: React.FC = () => {
                   </Label>
                   <span
                     className={`text-[11px] font-mono font-medium ${
-                      executiveWordCount < 50 ? "text-amber-600" : "text-emerald-600"
+                      executiveWordCount < 30 ? "text-amber-600" : "text-emerald-600"
                     }`}
                   >
-                    {executiveWordCount} words (min. 50 recommended)
+                    {executiveWordCount} words (min. 30 recommended)
                   </span>
                 </div>
                 <RichTextEditor
                   value={reportState.summary.executiveSummary}
-                  onChange={(val) =>
+                  onChange={(val) => {
                     setReportState((prev) => ({
                       ...prev!,
                       summary: { ...prev!.summary, executiveSummary: val },
-                    }))
-                  }
-                  placeholder="Summarize the core themes, distinguished attendees, key insights, and campus impact..."
+                    }));
+                    if (validationErrors.executiveSummary) {
+                      setValidationErrors((prev) => ({ ...prev, executiveSummary: undefined }));
+                    }
+                  }}
+                  error={Boolean(validationErrors.executiveSummary)}
+                  placeholder="Type the comprehensive event executive summary here..."
                 />
+                {validationErrors.executiveSummary && (
+                  <p className="text-[11px] text-rose-600 font-medium">{validationErrors.executiveSummary}</p>
+                )}
               </div>
 
-              {/* Objectives */}
-              <div className="space-y-3 pt-4 border-t">
+              {/* Specific Learning & Academic Objectives */}
+              <div className="space-y-3 pt-4 border-t border-slate-100">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-bold text-slate-800">
-                    Specific Learning &amp; Academic Objectives
+                    Specific Learning &amp; Academic Objectives <span className="text-rose-500">*</span>
                   </Label>
                   <Button
                     type="button"
@@ -428,7 +528,7 @@ export const EventReportBuilderPage: React.FC = () => {
                         summary: { ...prev!.summary, objectives: [...objs, ""] },
                       }));
                     }}
-                    className="rounded-xl text-xs h-8"
+                    className="rounded-xl text-xs h-8 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5 mr-1" />
                     <span>Add Objective</span>
@@ -436,50 +536,58 @@ export const EventReportBuilderPage: React.FC = () => {
                 </div>
 
                 {reportState.summary.objectives?.map((obj, idx) => (
-                  <div key={idx} className="flex gap-2">
+                  <div key={idx} className="flex gap-2 items-center">
                     <Input
                       value={obj}
                       onChange={(e) => {
-                        const updated = [...reportState.summary.objectives];
+                        const updated = [...(reportState.summary.objectives || [])];
                         updated[idx] = e.target.value;
                         setReportState((prev) => ({
                           ...prev!,
                           summary: { ...prev!.summary, objectives: updated },
                         }));
+                        if (validationErrors.objectives) {
+                          setValidationErrors((prev) => ({ ...prev, objectives: undefined }));
+                        }
                       }}
-                      placeholder={`Objective #${idx + 1}`}
+                      placeholder={`Academic Objective #${idx + 1} (e.g. Master neural network backpropagation)`}
                       className="h-9 text-xs"
                     />
                     <button
                       type="button"
+                      aria-label="Remove objective"
                       onClick={() => {
                         const updated = reportState.summary.objectives.filter((_, i) => i !== idx);
                         setReportState((prev) => ({
                           ...prev!,
-                          summary: { ...prev!.summary, objectives: updated },
+                          summary: { ...prev!.summary, objectives: updated.length ? updated : [""] },
                         }));
                       }}
-                      className="text-rose-500 hover:text-rose-700 p-2"
+                      className="text-rose-500 hover:text-rose-700 p-2 cursor-pointer transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 ))}
+
+                {validationErrors.objectives && (
+                  <p className="text-[11px] text-rose-600 font-medium">{validationErrors.objectives}</p>
+                )}
               </div>
             </div>
           )}
 
           {/* =================================================================== */}
-          {/* SECTION 2: PARTICIPATION */}
+          {/* SECTION 2: PARTICIPATION & DEMOGRAPHICS */}
           {/* =================================================================== */}
           {activeSection === 2 && (
-            <div className="space-y-6 animate-fade-in">
+            <div className="space-y-6">
               <div className="space-y-1">
                 <h2 className="text-base sm:text-lg font-bold text-slate-900">
                   Section 2: Participation &amp; Demographics
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Registered attendee data, verified gate attendance, and departmental breakdown.
+                  Registered attendee numbers, verified gate attendance, and student coordinators.
                 </p>
               </div>
 
@@ -491,8 +599,9 @@ export const EventReportBuilderPage: React.FC = () => {
                   <Input
                     value={reportState.participation.registeredCount}
                     readOnly
-                    className="h-10 text-xs sm:text-sm bg-slate-50 font-bold"
+                    className="h-10 text-xs sm:text-sm bg-slate-50 font-bold text-slate-700"
                   />
+                  <p className="text-[11px] text-slate-400">Derived from confirmed registration records</p>
                 </div>
 
                 <div className="space-y-1.5">
@@ -501,56 +610,70 @@ export const EventReportBuilderPage: React.FC = () => {
                   </Label>
                   <Input
                     type="number"
-                    value={reportState.participation.actualAttendance}
-                    onChange={(e) =>
+                    min="0"
+                    value={reportState.participation.actualAttendance || ""}
+                    onChange={(e) => {
+                      const val = Math.max(0, Number(e.target.value));
                       setReportState((prev) => ({
                         ...prev!,
                         participation: {
                           ...prev!.participation,
-                          actualAttendance: Number(e.target.value),
+                          actualAttendance: val,
                         },
-                      }))
-                    }
-                    className="h-10 text-xs sm:text-sm font-bold"
+                      }));
+                      if (validationErrors.actualAttendance) {
+                        setValidationErrors((prev) => ({ ...prev, actualAttendance: undefined }));
+                      }
+                    }}
+                    placeholder="Enter verified attendee count"
+                    className={`h-10 text-xs sm:text-sm font-bold ${
+                      validationErrors.actualAttendance ? "border-rose-400 ring-2 ring-rose-100" : ""
+                    }`}
                   />
-                  {reportState.participation.actualAttendance >
-                    reportState.participation.registeredCount && (
+                  {validationErrors.actualAttendance ? (
+                    <p className="text-[11px] text-rose-600 font-medium">{validationErrors.actualAttendance}</p>
+                  ) : reportState.participation.actualAttendance > reportState.participation.registeredCount ? (
                     <p className="text-[11px] text-amber-600 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" />
-                      <span>Attendance exceeds confirmed registrations.</span>
+                      <AlertTriangle className="w-3 h-3 shrink-0" />
+                      <span>Attendance exceeds confirmed bookings (includes walk-in attendees).</span>
                     </p>
-                  )}
+                  ) : null}
                 </div>
               </div>
 
-              {/* Student Volunteers */}
-              <div className="space-y-1.5 pt-2 border-t">
+              {/* Student Volunteer Coordinators */}
+              <div className="space-y-1.5 pt-2 border-t border-slate-100">
                 <Label className="text-xs font-bold text-slate-800">
                   Student Volunteer Coordinators
                 </Label>
-                <Input
+                <Textarea
                   value={reportState.participation.studentVolunteersNames?.join(", ") || ""}
                   onChange={(e) =>
                     setReportState((prev) => ({
                       ...prev!,
                       participation: {
                         ...prev!.participation,
-                        studentVolunteersNames: e.target.value.split(",").map((s) => s.trim()),
+                        studentVolunteersNames: e.target.value
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean),
                       },
                     }))
                   }
-                  placeholder="e.g. Rahul Sharma (CSE), Sneha Rao (ECE)"
-                  className="h-10 text-xs sm:text-sm"
+                  placeholder="e.g. Rahul Sharma (CSE), Sneha Rao (ECE), Vignesh K. (AIML)"
+                  rows={2}
+                  className="text-xs sm:text-sm rounded-xl"
                 />
+                <p className="text-[11px] text-slate-400">Separate multiple names with commas</p>
               </div>
             </div>
           )}
 
           {/* =================================================================== */}
-          {/* SECTION 3: RESOURCE PERSONS */}
+          {/* SECTION 3: KEYNOTE SPEAKERS & RESOURCE PERSONS */}
           {/* =================================================================== */}
           {activeSection === 3 && (
-            <div className="space-y-6 animate-fade-in">
+            <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <h2 className="text-base sm:text-lg font-bold text-slate-900">
@@ -573,136 +696,216 @@ export const EventReportBuilderPage: React.FC = () => {
                     };
                     setReportState((prev) => ({
                       ...prev!,
-                      resourcePersons: [...prev!.resourcePersons, newPerson],
+                      resourcePersons: [...(prev!.resourcePersons || []), newPerson],
                     }));
                   }}
-                  className="rounded-xl text-xs h-8"
+                  className="rounded-xl text-xs h-8 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 mr-1" />
                   <span>Add Speaker</span>
                 </Button>
               </div>
 
-              {reportState.resourcePersons.map((rp, idx) => (
-                <div key={rp.id} className="p-4 rounded-2xl bg-slate-50 border space-y-3 relative">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-800">Resource Person #{idx + 1}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = reportState.resourcePersons.filter((p) => p.id !== rp.id);
-                        setReportState((prev) => ({ ...prev!, resourcePersons: updated }));
-                      }}
-                      className="text-rose-500 hover:text-rose-700 text-xs"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Input
-                      value={rp.name}
-                      onChange={(e) => {
-                        const updated = [...reportState.resourcePersons];
-                        updated[idx].name = e.target.value;
-                        setReportState((prev) => ({ ...prev!, resourcePersons: updated }));
-                      }}
-                      placeholder="Full Name (e.g. Dr. Rajesh Kumar)"
-                      className="h-9 text-xs"
-                    />
-                    <Input
-                      value={rp.designation}
-                      onChange={(e) => {
-                        const updated = [...reportState.resourcePersons];
-                        updated[idx].designation = e.target.value;
-                        setReportState((prev) => ({ ...prev!, resourcePersons: updated }));
-                      }}
-                      placeholder="Designation (e.g. Principal AI Scientist)"
-                      className="h-9 text-xs"
-                    />
-                    <Input
-                      value={rp.organisation}
-                      onChange={(e) => {
-                        const updated = [...reportState.resourcePersons];
-                        updated[idx].organisation = e.target.value;
-                        setReportState((prev) => ({ ...prev!, resourcePersons: updated }));
-                      }}
-                      placeholder="Organization (e.g. Google India)"
-                      className="h-9 text-xs"
-                    />
-                    <Input
-                      value={rp.sessionTopic}
-                      onChange={(e) => {
-                        const updated = [...reportState.resourcePersons];
-                        updated[idx].sessionTopic = e.target.value;
-                        setReportState((prev) => ({ ...prev!, resourcePersons: updated }));
-                      }}
-                      placeholder="Session Title / Keynote Topic"
-                      className="h-9 text-xs"
-                    />
-                  </div>
+              {(!reportState.resourcePersons || reportState.resourcePersons.length === 0) ? (
+                <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-2xl space-y-3 bg-slate-50/50">
+                  <Award className="w-8 h-8 mx-auto text-slate-300 stroke-1" />
+                  <p className="text-xs font-bold text-slate-700">No Resource Persons Recorded</p>
+                  <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                    Click "Add Speaker" to document guest lecturers, keynote speakers, or workshop trainers.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const newPerson: ResourcePerson = {
+                        id: `rp_${Date.now()}`,
+                        name: "",
+                        designation: "",
+                        organisation: "",
+                        sessionTopic: "",
+                        profile: "",
+                      };
+                      setReportState((prev) => ({
+                        ...prev!,
+                        resourcePersons: [newPerson],
+                      }));
+                    }}
+                    className="rounded-xl text-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    <span>Add First Speaker</span>
+                  </Button>
                 </div>
-              ))}
+              ) : (
+                reportState.resourcePersons.map((rp, idx) => (
+                  <div key={rp.id || idx} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 relative">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-[#004D61]">Resource Person #{idx + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = reportState.resourcePersons.filter((_, i) => i !== idx);
+                          setReportState((prev) => ({ ...prev!, resourcePersons: updated }));
+                        }}
+                        className="text-rose-500 hover:text-rose-700 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Remove</span>
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-semibold text-slate-700">Speaker Name *</Label>
+                        <Input
+                          value={rp.name}
+                          onChange={(e) => {
+                            const updated = [...reportState.resourcePersons];
+                            updated[idx] = { ...updated[idx], name: e.target.value };
+                            setReportState((prev) => ({ ...prev!, resourcePersons: updated }));
+                          }}
+                          placeholder="e.g. Dr. Rajesh Kumar"
+                          className="h-9 text-xs bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-semibold text-slate-700">Designation *</Label>
+                        <Input
+                          value={rp.designation}
+                          onChange={(e) => {
+                            const updated = [...reportState.resourcePersons];
+                            updated[idx] = { ...updated[idx], designation: e.target.value };
+                            setReportState((prev) => ({ ...prev!, resourcePersons: updated }));
+                          }}
+                          placeholder="e.g. Principal AI Research Scientist"
+                          className="h-9 text-xs bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-semibold text-slate-700">Organization / Institution *</Label>
+                        <Input
+                          value={rp.organisation}
+                          onChange={(e) => {
+                            const updated = [...reportState.resourcePersons];
+                            updated[idx] = { ...updated[idx], organisation: e.target.value };
+                            setReportState((prev) => ({ ...prev!, resourcePersons: updated }));
+                          }}
+                          placeholder="e.g. Google India / IIT Madras"
+                          className="h-9 text-xs bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-semibold text-slate-700">Topic / Keynote Session *</Label>
+                        <Input
+                          value={rp.sessionTopic}
+                          onChange={(e) => {
+                            const updated = [...reportState.resourcePersons];
+                            updated[idx] = { ...updated[idx], sessionTopic: e.target.value };
+                            setReportState((prev) => ({ ...prev!, resourcePersons: updated }));
+                          }}
+                          placeholder="e.g. Generative AI in Production Workflows"
+                          className="h-9 text-xs bg-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
 
           {/* =================================================================== */}
-          {/* SECTION 4: BUDGET & FINANCE */}
+          {/* SECTION 4: FINANCIAL STATEMENT & BALANCE SHEET */}
           {/* =================================================================== */}
           {activeSection === 4 && (
-            <div className="space-y-6 animate-fade-in">
+            <div className="space-y-6">
               <div className="space-y-1">
                 <h2 className="text-base sm:text-lg font-bold text-slate-900">
                   Section 4: Financial Statement &amp; Balance Sheet
                 </h2>
-                <p className="text-xs text-slate-500">Track allocated grants, itemized expenses, and registrations revenue.</p>
+                <p className="text-xs text-slate-500">Track allocated grants, itemized expenditures, and auto-calculated balance.</p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-slate-800">Budget Allocated (₹)</Label>
+                  <Label className="text-xs font-bold text-slate-800">
+                    Budget Allocated (₹) <span className="text-rose-500">*</span>
+                  </Label>
                   <Input
                     type="number"
-                    value={reportState.finance.budgetAllocated}
-                    onChange={(e) =>
+                    min="0"
+                    value={reportState.finance.budgetAllocated || ""}
+                    onChange={(e) => {
+                      const allocated = Math.max(0, Number(e.target.value));
+                      const spent = reportState.finance.budgetSpent || 0;
                       setReportState((prev) => ({
                         ...prev!,
                         finance: {
                           ...prev!.finance,
-                          budgetAllocated: Number(e.target.value),
-                          balance: Number(e.target.value) - prev!.finance.budgetSpent,
+                          budgetAllocated: allocated,
+                          balance: allocated - spent,
                         },
-                      }))
-                    }
-                    className="h-10 text-xs sm:text-sm font-bold"
+                      }));
+                      if (validationErrors.budgetAllocated) {
+                        setValidationErrors((prev) => ({ ...prev, budgetAllocated: undefined }));
+                      }
+                    }}
+                    placeholder="0"
+                    className={`h-10 text-xs sm:text-sm font-bold ${
+                      validationErrors.budgetAllocated ? "border-rose-400 ring-2 ring-rose-100" : ""
+                    }`}
                   />
+                  {validationErrors.budgetAllocated && (
+                    <p className="text-[11px] text-rose-600 font-medium">{validationErrors.budgetAllocated}</p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-slate-800">Total Spent (₹)</Label>
+                  <Label className="text-xs font-bold text-slate-800">
+                    Total Spent (₹) <span className="text-rose-500">*</span>
+                  </Label>
                   <Input
                     type="number"
-                    value={reportState.finance.budgetSpent}
-                    onChange={(e) =>
+                    min="0"
+                    value={reportState.finance.budgetSpent !== undefined ? reportState.finance.budgetSpent : ""}
+                    onChange={(e) => {
+                      const spent = Math.max(0, Number(e.target.value));
+                      const allocated = reportState.finance.budgetAllocated || 0;
                       setReportState((prev) => ({
                         ...prev!,
                         finance: {
                           ...prev!.finance,
-                          budgetSpent: Number(e.target.value),
-                          balance: prev!.finance.budgetAllocated - Number(e.target.value),
+                          budgetSpent: spent,
+                          balance: allocated - spent,
                         },
-                      }))
-                    }
-                    className="h-10 text-xs sm:text-sm font-bold"
+                      }));
+                      if (validationErrors.budgetSpent) {
+                        setValidationErrors((prev) => ({ ...prev, budgetSpent: undefined }));
+                      }
+                    }}
+                    placeholder="0"
+                    className={`h-10 text-xs sm:text-sm font-bold ${
+                      validationErrors.budgetSpent ? "border-rose-400 ring-2 ring-rose-100" : ""
+                    }`}
                   />
+                  {validationErrors.budgetSpent && (
+                    <p className="text-[11px] text-rose-600 font-medium">{validationErrors.budgetSpent}</p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
                   <Label className="text-xs font-bold text-slate-800">Balance Remaining (₹)</Label>
                   <Input
-                    value={`₹${(reportState.finance.balance || 0).toLocaleString()}`}
+                    value={`₹${(reportState.finance.balance || 0).toLocaleString("en-IN")}`}
                     readOnly
-                    className="h-10 text-xs sm:text-sm bg-slate-50 font-extrabold text-emerald-700"
+                    className={`h-10 text-xs sm:text-sm bg-slate-50 font-extrabold ${
+                      (reportState.finance.balance || 0) < 0 ? "text-rose-600" : "text-emerald-700"
+                    }`}
                   />
+                  <p className="text-[10px] text-slate-400">Auto-calculated: Allocated - Spent</p>
                 </div>
               </div>
             </div>
@@ -712,7 +915,7 @@ export const EventReportBuilderPage: React.FC = () => {
           {/* SECTION 5: MEDIA & EVENT ATTACHMENTS */}
           {/* =================================================================== */}
           {activeSection === 5 && (
-            <div className="space-y-6 animate-fade-in">
+            <div className="space-y-6">
               <EventAttachmentsManager
                 eventId={reportState.eventId}
                 allowUpload={!isReadOnly}
@@ -723,67 +926,155 @@ export const EventReportBuilderPage: React.FC = () => {
           )}
 
           {/* =================================================================== */}
-          {/* SECTION 6: FEEDBACK & IMPACT */}
+          {/* SECTION 6: FEEDBACK & STUDENT IMPACT */}
           {/* =================================================================== */}
           {activeSection === 6 && (
-            <div className="space-y-6 animate-fade-in">
+            <div className="space-y-6">
               <div className="space-y-1">
                 <h2 className="text-base sm:text-lg font-bold text-slate-900">
                   Section 6: Attendee Feedback &amp; Student Impact
                 </h2>
-                <p className="text-xs text-slate-500">Quotes, survey ratings, and actionable future recommendations.</p>
+                <p className="text-xs text-slate-500">Attendee quotes, satisfaction metrics, and actionable academic recommendations.</p>
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-800">Feedback Summary</Label>
+                <Label className="text-xs font-bold text-slate-800">
+                  Feedback Summary <span className="text-rose-500">*</span>
+                </Label>
                 <Textarea
                   value={reportState.feedback.feedbackSummary}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setReportState((prev) => ({
                       ...prev!,
                       feedback: { ...prev!.feedback, feedbackSummary: e.target.value },
-                    }))
-                  }
-                  rows={3}
-                  className="text-xs rounded-xl"
+                    }));
+                    if (validationErrors.feedbackSummary) {
+                      setValidationErrors((prev) => ({ ...prev, feedbackSummary: undefined }));
+                    }
+                  }}
+                  rows={4}
+                  placeholder="Summarize overall student sentiment, feedback forms received, key takeaways, and suggestions..."
+                  className={`text-xs rounded-xl ${
+                    validationErrors.feedbackSummary ? "border-rose-400 ring-2 ring-rose-100" : ""
+                  }`}
                 />
+                {validationErrors.feedbackSummary && (
+                  <p className="text-[11px] text-rose-600 font-medium">{validationErrors.feedbackSummary}</p>
+                )}
               </div>
 
               {/* Quotes */}
-              <div className="space-y-3 pt-2 border-t">
-                <Label className="text-xs font-bold text-slate-800">
-                  Representative Participant Quotes
-                </Label>
+              <div className="space-y-3 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold text-slate-800">
+                    Representative Participant Quotes
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const newQuote = {
+                        id: `q_${Date.now()}`,
+                        authorName: "",
+                        quote: "",
+                        departmentOrRole: "",
+                      };
+                      setReportState((prev) => ({
+                        ...prev!,
+                        feedback: {
+                          ...prev!.feedback,
+                          participantQuotes: [...(prev!.feedback.participantQuotes || []), newQuote],
+                        },
+                      }));
+                    }}
+                    className="rounded-xl text-xs h-8 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    <span>Add Quote</span>
+                  </Button>
+                </div>
+
                 {reportState.feedback.participantQuotes?.map((q, idx) => (
-                  <div key={q.id} className="p-3 bg-slate-50 rounded-xl border space-y-2">
+                  <div key={q.id || idx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 relative">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[11px] font-bold text-slate-700">Quote #{idx + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = reportState.feedback.participantQuotes.filter((_, i) => i !== idx);
+                          setReportState((prev) => ({
+                            ...prev!,
+                            feedback: { ...prev!.feedback, participantQuotes: updated },
+                          }));
+                        }}
+                        className="text-rose-500 hover:text-rose-700 text-xs font-semibold cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    </div>
                     <Input
                       value={q.quote}
                       onChange={(e) => {
                         const updated = [...reportState.feedback.participantQuotes];
-                        updated[idx].quote = e.target.value;
+                        updated[idx] = { ...updated[idx], quote: e.target.value };
                         setReportState((prev) => ({
                           ...prev!,
                           feedback: { ...prev!.feedback, participantQuotes: updated },
                         }));
                       }}
-                      placeholder="Student Feedback Quote"
+                      placeholder="Student Feedback Quote (e.g. The hands-on coding labs were transformative!)"
                       className="h-8 text-xs bg-white"
                     />
-                    <Input
-                      value={q.authorName}
-                      onChange={(e) => {
-                        const updated = [...reportState.feedback.participantQuotes];
-                        updated[idx].authorName = e.target.value;
-                        setReportState((prev) => ({
-                          ...prev!,
-                          feedback: { ...prev!.feedback, participantQuotes: updated },
-                        }));
-                      }}
-                      placeholder="Attribution (e.g. Rohan V. - CSE 4th Year)"
-                      className="h-7 text-[11px] bg-white"
-                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <Input
+                        value={q.authorName}
+                        onChange={(e) => {
+                          const updated = [...reportState.feedback.participantQuotes];
+                          updated[idx] = { ...updated[idx], authorName: e.target.value };
+                          setReportState((prev) => ({
+                            ...prev!,
+                            feedback: { ...prev!.feedback, participantQuotes: updated },
+                          }));
+                        }}
+                        placeholder="Author Name (e.g. Rohan V.)"
+                        className="h-7 text-[11px] bg-white"
+                      />
+                      <Input
+                        value={q.departmentOrRole || ""}
+                        onChange={(e) => {
+                          const updated = [...reportState.feedback.participantQuotes];
+                          updated[idx] = { ...updated[idx], departmentOrRole: e.target.value };
+                          setReportState((prev) => ({
+                            ...prev!,
+                            feedback: { ...prev!.feedback, participantQuotes: updated },
+                          }));
+                        }}
+                        placeholder="Department / Role (e.g. CSE 4th Year)"
+                        className="h-7 text-[11px] bg-white"
+                      />
+                    </div>
                   </div>
                 ))}
+              </div>
+
+              {/* Student Impact / Recommendations */}
+              <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                <Label className="text-xs font-bold text-slate-800">
+                  Student Impact &amp; Recommendations for Next Edition
+                </Label>
+                <Textarea
+                  value={reportState.feedback.suggestionsForFuture || ""}
+                  onChange={(e) =>
+                    setReportState((prev) => ({
+                      ...prev!,
+                      feedback: { ...prev!.feedback, suggestionsForFuture: e.target.value },
+                    }))
+                  }
+                  rows={3}
+                  placeholder="Outline key academic outcomes, career readiness impact, and operational improvements for future iterations..."
+                  className="text-xs rounded-xl"
+                />
               </div>
             </div>
           )}
@@ -796,7 +1087,7 @@ export const EventReportBuilderPage: React.FC = () => {
               size="sm"
               onClick={() => setActiveSection((prev) => Math.max(prev - 1, 1))}
               disabled={activeSection === 1}
-              className="rounded-xl text-xs"
+              className="rounded-xl text-xs cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />
               <span>Previous Section</span>
@@ -811,7 +1102,7 @@ export const EventReportBuilderPage: React.FC = () => {
                     handleSaveDraft(true);
                     setActiveSection((prev) => Math.min(prev + 1, 6));
                   }}
-                  className="bg-[#004D61] hover:bg-[#003847] text-white rounded-xl text-xs"
+                  className="bg-[#004D61] hover:bg-[#003847] text-white rounded-xl text-xs cursor-pointer font-bold"
                 >
                   <span>Section {activeSection + 1}</span>
                   <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
@@ -821,9 +1112,9 @@ export const EventReportBuilderPage: React.FC = () => {
                   <Button
                     type="button"
                     size="sm"
-                    onClick={() => setSubmitDialogOpen(true)}
+                    onClick={handleInitiateSubmit}
                     disabled={submitReportMutation.isPending}
-                    className="bg-[#004D61] hover:bg-[#003847] text-white font-bold rounded-xl text-xs px-6 shadow-md gap-2"
+                    className="bg-[#004D61] hover:bg-[#003847] text-white font-bold rounded-xl text-xs px-6 shadow-md gap-2 cursor-pointer"
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>Submit Post-Event Report</span>
@@ -843,10 +1134,10 @@ export const EventReportBuilderPage: React.FC = () => {
               <Send className="w-5 h-5 text-[#007A99]" />
             </div>
             <DialogTitle className="text-lg font-bold text-slate-900">
-              Submit Report to Academic Administration?
+              Submit Post-Event Report?
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500 leading-relaxed">
-              Submitting locks your report document and dispatches it to the Academic Quality Board for official sign-off.
+              Once submitted, the report will be sent to the Academic Quality Board for official review and editing may be restricted.
             </DialogDescription>
           </DialogHeader>
 
@@ -855,7 +1146,7 @@ export const EventReportBuilderPage: React.FC = () => {
               variant="outline"
               size="sm"
               onClick={() => setSubmitDialogOpen(false)}
-              className="w-full sm:w-auto rounded-xl text-xs"
+              className="w-full sm:w-auto rounded-xl text-xs cursor-pointer"
             >
               Back to Editing
             </Button>
@@ -863,7 +1154,7 @@ export const EventReportBuilderPage: React.FC = () => {
               size="sm"
               onClick={handleConfirmSubmit}
               disabled={submitReportMutation.isPending}
-              className="w-full sm:w-auto rounded-xl text-xs bg-[#004D61] hover:bg-[#003847] text-white font-bold"
+              className="w-full sm:w-auto rounded-xl text-xs bg-[#004D61] hover:bg-[#003847] text-white font-bold cursor-pointer"
             >
               {submitReportMutation.isPending ? "Submitting..." : "Confirm & Submit Report"}
             </Button>
