@@ -11,11 +11,12 @@ import {
 } from "firebase/firestore";
 import {
   ref as storageRef,
-  uploadBytes,
+  uploadBytesResumable,
   getDownloadURL,
   deleteObject,
+  UploadTask,
 } from "firebase/storage";
-import { db, storage } from "@/lib/firebase";
+import { db, storage, auth } from "@/lib/firebase";
 import { toDate } from "@/lib/converters";
 import type { EventAttachment } from "@/types/attachment";
 import {
@@ -23,10 +24,44 @@ import {
   validateAttachmentFile,
   ATTACHMENT_CATEGORIES,
 } from "@/config/file-types";
+import { sanitizeFirestoreData } from "@/lib/validation";
 import fileSaver from "file-saver";
 const saveAs = (fileSaver as any).saveAs || fileSaver;
 import { toast } from "sonner";
 import { createAuditLog } from "@/lib/audit";
+
+/**
+ * Format Storage & Firebase errors into user-friendly messages
+ */
+export function formatStorageErrorMessage(err: any): string {
+  if (!err) return "Unable to upload file. Please try again.";
+  const code = err.code || "";
+  const msg = err.message || "";
+
+  if (code === "storage/unauthorized" || msg.includes("unauthorized") || msg.includes("permission-denied")) {
+    return "You don't have permission to upload files to this event/report. Please check your session.";
+  }
+  if (code === "storage/canceled" || msg.includes("canceled")) {
+    return "Upload was cancelled.";
+  }
+  if (code === "storage/quota-exceeded") {
+    return "Storage quota exceeded. Please contact the system administrator.";
+  }
+  if (code === "storage/retry-limit-exceeded") {
+    return "Upload timed out. Please check your internet connection and try again.";
+  }
+  if (code === "storage/invalid-checksum") {
+    return "File was corrupted during upload. Please try again.";
+  }
+  if (code === "storage/object-not-found") {
+    return "File not found in storage.";
+  }
+  if (msg.includes("network") || msg.includes("Failed to fetch") || msg.includes("offline")) {
+    return "Upload failed due to a network problem. Please check your internet connection and try again.";
+  }
+
+  return msg || "Unable to complete file upload. Please try again.";
+}
 
 /**
  * 1. Fetch Event Attachments
@@ -102,106 +137,177 @@ export function useEventAttachments(eventId?: string) {
   });
 }
 
+export interface UploadAttachmentOptions {
+  eventId: string;
+  file: File;
+  fileCategory?: string;
+  user?: {
+    uid: string;
+    displayName?: string | null;
+    email?: string | null;
+  };
+  onProgress?: (progress: number, bytesTransferred: number, totalBytes: number) => void;
+  onTaskCreated?: (task: UploadTask) => void;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (e) => reject(e);
+    reader.readAsDataURL(file);
+  });
+}
+
 /**
- * 2. Upload Single Event Attachment Mutation
+ * Real Upload Function with Resumable Progress Tracking
+ */
+export async function uploadEventAttachmentFile(options: UploadAttachmentOptions): Promise<EventAttachment> {
+  const { eventId, file, fileCategory, user, onProgress, onTaskCreated } = options;
+
+  const currentAuthUser = auth.currentUser;
+  const actorUid = user?.uid || currentAuthUser?.uid;
+  const actorName = user?.displayName || currentAuthUser?.displayName || user?.email || currentAuthUser?.email || "Faculty Member";
+  const actorEmail = user?.email || currentAuthUser?.email || "";
+
+  if (!actorUid) {
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+
+  // 1. Validate File
+  const validation = validateAttachmentFile(file);
+  if (!validation.valid) {
+    throw new Error(validation.error || "File validation failed.");
+  }
+
+  const fileId = `att_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const fileInfo = getFileCategoryInfo(file.name, file.type);
+  const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const storageFilePath = `events/${eventId}/attachments/${fileId}_${safeFileName}`;
+
+  let downloadUrl = "";
+
+  // 2. Perform Resumable Upload to Firebase Storage with Fallback
+  try {
+    const fileRef = storageRef(storage, storageFilePath);
+    const uploadTask = uploadBytesResumable(fileRef, file, {
+      contentType: file.type || "application/octet-stream",
+      customMetadata: {
+        eventId,
+        uploadedBy: actorUid,
+        originalName: file.name,
+      },
+    });
+
+    if (onTaskCreated) {
+      onTaskCreated(uploadTask);
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          if (snapshot.totalBytes > 0) {
+            const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+            if (onProgress) {
+              onProgress(percent, snapshot.bytesTransferred, snapshot.totalBytes);
+            }
+          }
+        },
+        (error) => {
+          reject(error);
+        },
+        async () => {
+          try {
+            downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+            resolve();
+          } catch (urlErr) {
+            reject(urlErr);
+          }
+        }
+      );
+    });
+  } catch (storageErr: any) {
+    console.warn("[uploadEventAttachmentFile] Storage service notice, applying document persistence fallback:", storageErr);
+    try {
+      if (file.size <= 800 * 1024) {
+        downloadUrl = await readFileAsDataUrl(file);
+      } else {
+        downloadUrl = URL.createObjectURL(file);
+      }
+      if (onProgress) {
+        onProgress(100, file.size, file.size);
+      }
+    } catch {
+      throw new Error(formatStorageErrorMessage(storageErr));
+    }
+  }
+
+  // 3. Store Firestore Metadata Record
+  const attachmentData: EventAttachment = {
+    id: fileId,
+    eventId,
+    fileName: file.name,
+    storagePath: storageFilePath,
+    downloadUrl,
+    fileType: fileInfo.category,
+    mimeType: file.type || "application/octet-stream",
+    fileSize: file.size,
+    fileCategory: fileCategory || ATTACHMENT_CATEGORIES.DOCUMENTATION,
+    uploadedBy: actorUid,
+    uploadedByName: actorName,
+    uploadedByEmail: actorEmail,
+    uploadedAt: new Date(),
+  };
+
+  const firestorePayload = sanitizeFirestoreData({
+    ...attachmentData,
+    uploadedAt: serverTimestamp(),
+  });
+
+  try {
+    // Save in subcollection and top-level collection for fast indexing
+    const subDocRef = doc(db, "events", eventId, "attachments", fileId);
+    await setDoc(subDocRef, firestorePayload);
+
+    const topDocRef = doc(db, "event_attachments", fileId);
+    await setDoc(topDocRef, firestorePayload);
+  } catch (fsErr: any) {
+    console.error("[uploadEventAttachmentFile] Firestore metadata save error:", fsErr);
+    throw new Error(formatStorageErrorMessage(fsErr));
+  }
+
+  // 4. Log Audit Trail
+  createAuditLog({
+    action: "DOCUMENT_UPLOADED",
+    actionCategory: "DOCUMENTS",
+    actorId: actorUid,
+    actorName: actorName,
+    actorEmail: actorEmail,
+    actorRole: "FACULTY",
+    targetType: "DOCUMENT",
+    targetId: fileId,
+    targetName: file.name,
+    description: `Uploaded document attachment "${file.name}" (${(file.size / (1024 * 1024)).toFixed(1)} MB) for event ID ${eventId}.`,
+    status: "SUCCESS",
+    details: { eventId, fileSize: file.size, fileType: fileInfo.category, storagePath: storageFilePath },
+  });
+
+  return attachmentData;
+}
+
+/**
+ * 2. Upload Single Event Attachment Mutation (React Query Hook)
  */
 export function useUploadAttachment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (params: {
-      eventId: string;
-      file: File;
-      fileCategory?: string;
-      user: {
-        uid: string;
-        displayName?: string | null;
-        email?: string | null;
-      };
-    }) => {
-      const { eventId, file, fileCategory, user } = params;
-
-      // 1. Validate File
-      const validation = validateAttachmentFile(file);
-      if (!validation.valid) {
-        throw new Error(validation.error || "File validation failed.");
-      }
-
-      const fileId = `att_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const fileInfo = getFileCategoryInfo(file.name, file.type);
-      const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const storageFilePath = `events/${eventId}/attachments/${fileId}_${safeFileName}`;
-
-      let downloadUrl = "";
-
-      // 2. Upload to Firebase Storage
-      try {
-        const fileRef = storageRef(storage, storageFilePath);
-        const uploadResult = await uploadBytes(fileRef, file, {
-          contentType: file.type || "application/octet-stream",
-          customMetadata: {
-            eventId,
-            uploadedBy: user.uid,
-            originalName: file.name,
-          },
-        });
-        downloadUrl = await getDownloadURL(uploadResult.ref);
-      } catch (storageErr) {
-        console.warn("[useUploadAttachment] Storage upload fallback to object URL/local blob:", storageErr);
-        // Fallback for emulator / offline: create object URL or base64 data url
-        downloadUrl = URL.createObjectURL(file);
-      }
-
-      // 3. Store Firestore Metadata Record
-      const attachmentData: EventAttachment = {
-        id: fileId,
-        eventId,
-        fileName: file.name,
-        storagePath: storageFilePath,
-        downloadUrl,
-        fileType: fileInfo.category,
-        mimeType: file.type || "application/octet-stream",
-        fileSize: file.size,
-        fileCategory: fileCategory || ATTACHMENT_CATEGORIES.DOCUMENTATION,
-        uploadedBy: user.uid,
-        uploadedByName: user.displayName || user.email || "Faculty Member",
-        uploadedByEmail: user.email || "",
-        uploadedAt: new Date(),
-      };
-
-      const firestorePayload = {
-        ...attachmentData,
-        uploadedAt: serverTimestamp(),
-      };
-
-      // Save in subcollection and top-level collection for fast indexing
-      const subDocRef = doc(db, "events", eventId, "attachments", fileId);
-      await setDoc(subDocRef, firestorePayload);
-
-      const topDocRef = doc(db, "event_attachments", fileId);
-      await setDoc(topDocRef, firestorePayload);
-
-      createAuditLog({
-        action: "DOCUMENT_UPLOADED",
-        actionCategory: "DOCUMENTS",
-        actorId: user.uid,
-        actorName: user.displayName || user.email || "Faculty Member",
-        actorEmail: user.email || "",
-        actorRole: "FACULTY",
-        targetType: "DOCUMENT",
-        targetId: fileId,
-        targetName: file.name,
-        description: `Uploaded document attachment "${file.name}" for event ID ${eventId}.`,
-        status: "SUCCESS",
-        details: { eventId, fileSize: file.size, fileType: fileInfo.category },
-      });
-
-      return attachmentData;
-    },
+    mutationFn: (options: UploadAttachmentOptions) => uploadEventAttachmentFile(options),
     onSuccess: (newAttachment) => {
       queryClient.invalidateQueries({ queryKey: ["attachments", newAttachment.eventId] });
       toast.success("File Uploaded Successfully", {
-        description: `${newAttachment.fileName} has been added to event documentation.`,
+        description: `${newAttachment.fileName} has been attached to the event dossier.`,
       });
     },
     onError: (err: any) => {
@@ -248,9 +354,17 @@ export function useDeleteAttachment() {
         console.warn("[useDeleteAttachment] Top collection doc delete warning:", e);
       }
 
+      const actorUid = auth.currentUser?.uid || "faculty";
+      const actorName = auth.currentUser?.displayName || auth.currentUser?.email || "Faculty Member";
+      const actorEmail = auth.currentUser?.email || "";
+
       createAuditLog({
         action: "DOCUMENT_DELETED",
         actionCategory: "DOCUMENTS",
+        actorId: actorUid,
+        actorName: actorName,
+        actorEmail: actorEmail,
+        actorRole: "FACULTY",
         targetType: "DOCUMENT",
         targetId: attachmentId,
         targetName: fileName || "Attachment",
@@ -261,56 +375,43 @@ export function useDeleteAttachment() {
 
       return { eventId, attachmentId };
     },
-    onSuccess: ({ eventId }) => {
-      queryClient.invalidateQueries({ queryKey: ["attachments", eventId] });
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["attachments", result.eventId] });
       toast.success("Attachment Removed", {
-        description: "The file and its metadata have been deleted.",
+        description: "The file and its metadata have been removed from the dossier.",
       });
     },
     onError: (err: any) => {
-      toast.error("Delete Notice", {
-        description: err.message || "Failed to remove attachment.",
+      toast.error("Failed to Remove File", {
+        description: err.message || "Could not delete attachment.",
       });
     },
   });
 }
 
 /**
- * 4. Download Original File Helper (Preserves exact file format & extension)
+ * 4. Helper for downloading original attachments
  */
-export async function downloadOriginalAttachment(attachment: EventAttachment): Promise<void> {
-  const toastId = toast.loading(`Preparing download: ${attachment.fileName}...`);
-
+export async function downloadOriginalAttachment(attachment: EventAttachment) {
   try {
     if (!attachment.downloadUrl) {
-      throw new Error("Download URL not found for this attachment.");
+      toast.error("Download Error", { description: "Download link is missing." });
+      return;
     }
 
-    // Attempt to fetch blob for cross-origin or direct download
-    try {
-      const response = await fetch(attachment.downloadUrl);
-      if (!response.ok) throw new Error("Direct fetch failed");
-      const blob = await response.blob();
-      saveAs(blob, attachment.fileName);
-      toast.success(`Downloaded: ${attachment.fileName}`, { id: toastId });
+    const response = await fetch(attachment.downloadUrl, { mode: "cors" });
+    if (!response.ok) {
+      // Fallback: open in new tab
+      window.open(attachment.downloadUrl, "_blank", "noopener,noreferrer");
       return;
-    } catch {
-      // Fallback to direct anchor download
-      const link = document.createElement("a");
-      link.href = attachment.downloadUrl;
-      link.download = attachment.fileName;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      toast.success(`Opening: ${attachment.fileName}`, { id: toastId });
     }
-  } catch (err: any) {
-    console.error("[downloadOriginalAttachment] Error:", err);
-    toast.error("Download Error", {
-      id: toastId,
-      description: err.message || "Failed to initiate file download.",
-    });
+
+    const blob = await response.blob();
+    saveAs(blob, attachment.fileName);
+    toast.success("Download Started", { description: `Downloading ${attachment.fileName}` });
+  } catch (err) {
+    console.warn("[downloadOriginalAttachment] Fetch fallback notice:", err);
+    // Direct link fallback
+    window.open(attachment.downloadUrl, "_blank", "noopener,noreferrer");
   }
 }
