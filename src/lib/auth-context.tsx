@@ -43,6 +43,7 @@ import type {
 } from "@/types";
 import { normalizeBTechDepartment } from "@/config/departments";
 import { toast } from "sonner";
+import { createAuditLog } from "@/lib/audit";
 
 export interface AuthClaims {
   role?: UserRole;
@@ -318,6 +319,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         }
 
         setProfile((prev) => (prev ? { ...prev, ...cleanedUpdates } : null));
+
+        createAuditLog({
+          action: "PROFILE_UPDATED",
+          actionCategory: "PROFILE",
+          actorId: user.uid,
+          actorName: cleanedUpdates.displayName || user.displayName || "Campus User",
+          actorEmail: cleanedUpdates.email || user.email || "",
+          actorRole: (profile?.role || "student").toUpperCase(),
+          targetType: "USER",
+          targetId: user.uid,
+          targetName: cleanedUpdates.displayName || user.displayName || "Campus User",
+          description: `${cleanedUpdates.displayName || user.displayName || "User"} updated their institutional profile records.`,
+          status: "SUCCESS",
+          details: { updatedFields: Object.keys(updates) },
+        });
+
         toast.success("Profile updated successfully.");
       } catch (err: any) {
         console.error("[AUTH] Error updating user profile in Firestore:", err);
@@ -586,6 +603,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setProfile(userProfile);
         setClaims({ role: profileRole, status: profileStatus });
         persistUserRole(profileRole, profileStatus);
+
+        createAuditLog({
+          action: "LOGIN",
+          actionCategory: "AUTHENTICATION",
+          actorId: user.uid,
+          actorName: userProfile.displayName,
+          actorEmail: userProfile.email,
+          actorRole: profileRole.toUpperCase(),
+          targetType: "USER",
+          targetId: user.uid,
+          targetName: userProfile.displayName,
+          description: `${userProfile.displayName} logged in successfully as ${profileRole.toUpperCase()}.`,
+          status: "SUCCESS",
+        });
+
         setIsLoading(false);
         setIsAuthenticating(false);
 
@@ -594,6 +626,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setIsLoading(false);
         setIsAuthenticating(false);
         console.error("[AUTH] Login error:", err);
+
+        createAuditLog({
+          action: "LOGIN_FAILED",
+          actionCategory: "AUTHENTICATION",
+          actorId: "anonymous",
+          actorName: trimmedEmail,
+          actorEmail: trimmedEmail,
+          actorRole: roleToValidate.toUpperCase(),
+          targetType: "USER",
+          targetId: trimmedEmail,
+          description: `Failed login attempt for ${trimmedEmail} (${err.message || "Invalid credentials"}).`,
+          status: "FAILED",
+          details: { attemptedRole: roleToValidate, error: err.message },
+        });
+
         throw err;
       }
     },
@@ -717,6 +764,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setProfile(userProfile);
         setClaims({ role: effRole, status: effStatus });
         persistUserRole(effRole, effStatus);
+
+        createAuditLog({
+          action: "SIGNUP",
+          actionCategory: "AUTHENTICATION",
+          actorId: user.uid,
+          actorName: userProfile.displayName,
+          actorEmail: userProfile.email,
+          actorRole: effRole.toUpperCase(),
+          targetType: "USER",
+          targetId: user.uid,
+          targetName: userProfile.displayName,
+          description: `New user ${userProfile.displayName} registered an institutional account as ${effRole.toUpperCase()}.`,
+          status: "SUCCESS",
+        });
+
         setIsLoading(false);
         setIsAuthenticating(false);
 
@@ -1004,8 +1066,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const signOut = useCallback(async (): Promise<void> => {
     console.log("[AUTH] User signing out");
+    const currentActorId = profile?.uid || firebaseUser?.uid || "user";
+    const currentActorName = profile?.displayName || firebaseUser?.displayName || "Campus User";
+    const currentActorEmail = profile?.email || firebaseUser?.email || "";
+    const currentActorRole = (profile?.role || "STUDENT").toUpperCase();
+
     setIsLoading(true);
     try {
+      if (currentActorId && currentActorId !== "user") {
+        createAuditLog({
+          action: "LOGOUT",
+          actionCategory: "AUTHENTICATION",
+          actorId: currentActorId,
+          actorName: currentActorName,
+          actorEmail: currentActorEmail,
+          actorRole: currentActorRole,
+          targetType: "USER",
+          targetId: currentActorId,
+          description: `${currentActorName} logged out of the session.`,
+          status: "SUCCESS",
+        });
+      }
+
       await firebaseSignOut(auth);
       setFirebaseUser(null);
       setProfile(null);
@@ -1021,7 +1103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       setIsLoading(false);
       setIsAuthenticating(false);
     }
-  }, [clearPersistedRole]);
+  }, [profile, firebaseUser, clearPersistedRole]);
 
   const effectiveRole: UserRole | null =
     profile?.role || claims?.role || cachedRole || null;

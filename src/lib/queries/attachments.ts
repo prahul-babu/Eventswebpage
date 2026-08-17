@@ -26,6 +26,7 @@ import {
 import fileSaver from "file-saver";
 const saveAs = (fileSaver as any).saveAs || fileSaver;
 import { toast } from "sonner";
+import { createAuditLog } from "@/lib/audit";
 
 /**
  * 1. Fetch Event Attachments
@@ -180,6 +181,21 @@ export function useUploadAttachment() {
       const topDocRef = doc(db, "event_attachments", fileId);
       await setDoc(topDocRef, firestorePayload);
 
+      createAuditLog({
+        action: "DOCUMENT_UPLOADED",
+        actionCategory: "DOCUMENTS",
+        actorId: user.uid,
+        actorName: user.displayName || user.email || "Faculty Member",
+        actorEmail: user.email || "",
+        actorRole: "FACULTY",
+        targetType: "DOCUMENT",
+        targetId: fileId,
+        targetName: file.name,
+        description: `Uploaded document attachment "${file.name}" for event ID ${eventId}.`,
+        status: "SUCCESS",
+        details: { eventId, fileSize: file.size, fileType: fileInfo.category },
+      });
+
       return attachmentData;
     },
     onSuccess: (newAttachment) => {
@@ -204,8 +220,8 @@ export function useDeleteAttachment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (params: { eventId: string; attachmentId: string; storagePath?: string }) => {
-      const { eventId, attachmentId, storagePath } = params;
+    mutationFn: async (params: { eventId: string; attachmentId: string; storagePath?: string; fileName?: string }) => {
+      const { eventId, attachmentId, storagePath, fileName } = params;
 
       // 1. Delete from Firebase Storage if storagePath exists
       if (storagePath) {
@@ -231,6 +247,17 @@ export function useDeleteAttachment() {
       } catch (e) {
         console.warn("[useDeleteAttachment] Top collection doc delete warning:", e);
       }
+
+      createAuditLog({
+        action: "DOCUMENT_DELETED",
+        actionCategory: "DOCUMENTS",
+        targetType: "DOCUMENT",
+        targetId: attachmentId,
+        targetName: fileName || "Attachment",
+        description: `Deleted document attachment "${fileName || attachmentId}" from event ID ${eventId}.`,
+        status: "SUCCESS",
+        details: { eventId, attachmentId },
+      });
 
       return { eventId, attachmentId };
     },

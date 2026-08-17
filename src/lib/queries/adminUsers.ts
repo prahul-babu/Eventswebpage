@@ -21,7 +21,12 @@ import {
 } from "@/lib/converters";
 import type { User, UserRole, UserStatus, FacultyApplication } from "@/types";
 import { toast } from "sonner";
-import { logAuditEvent } from "@/lib/audit";
+import {
+  logAuditEvent,
+  AuditLogRecord,
+  inferActionCategory,
+  generateAuditDescription,
+} from "@/lib/audit";
 
 export interface SystemConfig {
   academicYear: string;
@@ -35,16 +40,7 @@ export interface SystemConfig {
   eventCategories: string[];
 }
 
-export interface AuditLogEntry {
-  id: string;
-  action: string;
-  actorUid: string;
-  actorEmail: string;
-  actorRole: string;
-  targetUid?: string;
-  details?: Record<string, any>;
-  timestamp: Date;
-}
+export type AuditLogEntry = AuditLogRecord;
 
 /**
  * 1. Admin Dashboard Stats Aggregator
@@ -188,76 +184,139 @@ export function useAdminDashboardMetrics() {
 }
 
 /**
- * 2. Recent Audit Logs Feed for Dashboard & Audit Trail
+ * 2. Recent Audit Logs Feed for Dashboard & Institutional Audit Trail
  */
 export function useAdminAuditLogs(filters?: {
   action?: string;
+  category?: string;
   actorEmail?: string;
+  role?: string;
 }) {
-  return useQuery<AuditLogEntry[]>({
+  return useQuery<AuditLogRecord[]>({
     queryKey: ["admin", "audit-logs", filters],
     queryFn: async () => {
       try {
-        const logsRef = collection(db, "auditLogs");
-        const snap = await getDocs(logsRef);
+        const recordsMap = new Map<string, AuditLogRecord>();
 
-        let list: AuditLogEntry[] = snap.docs.map((d) => {
-          const data = d.data();
-          return {
-            id: d.id,
-            action: data.action || "SYSTEM_EVENT",
-            actorUid: data.actorUid || "system",
-            actorEmail: data.actorEmail || "system@apollouniversity.edu.in",
-            actorRole: data.actorRole || "SYSTEM",
-            targetUid: data.targetUid,
-            details: data.details || {},
-            timestamp: safeToDate(data.timestamp),
-          } as AuditLogEntry;
-        });
+        // 1. Fetch from primary auditLogs collection
+        try {
+          const logsRef1 = collection(db, "auditLogs");
+          const snap1 = await getDocs(logsRef1);
+          snap1.docs.forEach((d) => {
+            const data = d.data();
+            const action = data.action || "SYSTEM_EVENT";
+            const actorName = data.actorName || data.actorEmail?.split("@")[0] || "Campus User";
+            const actorRole = (data.actorRole || "STUDENT").toUpperCase();
+            const targetType = data.targetType || "SYSTEM";
+            const targetId = data.targetId || data.targetUid || "";
+            const targetName = data.targetName || data.details?.eventTitle || data.details?.targetName || "";
 
-        // If auditLogs collection is empty, synthesize live activity from real Firestore events & registrations
-        if (list.length === 0) {
-          const [eventsSnap, regsSnap] = await Promise.all([
-            getDocs(getEventsCollection(db)),
-            getDocs(getRegistrationsCollection(db)),
-          ]);
-
-          eventsSnap.docs.forEach((d) => {
-            const ev = d.data();
-            list.push({
-              id: `evt_log_${d.id}`,
-              action: ev.status === "PUBLISHED" ? "EVENT_PUBLISHED" : "EVENT_PROPOSAL_SUBMITTED",
-              actorUid: ev.organiserId || "system",
-              actorEmail: ev.organiserEmail || "faculty@apollouniversity.edu.in",
-              actorRole: "FACULTY",
-              details: { eventTitle: ev.title },
-              timestamp: safeToDate(ev.createdAt || ev.startAt),
-            });
+            const record: AuditLogRecord = {
+              id: d.id,
+              action,
+              actionCategory: data.actionCategory || inferActionCategory(action),
+              actorId: data.actorId || data.actorUid || "system",
+              actorName,
+              actorEmail: data.actorEmail || "system@apollouniversity.edu.in",
+              actorRole,
+              targetType,
+              targetId,
+              targetName,
+              description:
+                data.description ||
+                generateAuditDescription({
+                  action,
+                  actorName,
+                  actorRole,
+                  targetName,
+                  targetType,
+                }),
+              status: data.status || "SUCCESS",
+              details: data.details || {},
+              changedFields: data.changedFields || undefined,
+              timestamp: safeToDate(data.timestamp || (data as any).createdAt),
+              userAgent: data.userAgent,
+              ipAddress: data.ipAddress,
+            };
+            recordsMap.set(d.id, record);
           });
-
-          regsSnap.docs.forEach((d) => {
-            const reg = d.data();
-            list.push({
-              id: `reg_log_${d.id}`,
-              action: reg.status === "ATTENDED" ? "ATTENDANCE_VERIFIED" : "CAMPUS_REGISTRATION",
-              actorUid: reg.userId || "student",
-              actorEmail: reg.userEmail || "student@apollouniversity.edu.in",
-              actorRole: "STUDENT",
-              details: { ticketCode: reg.ticketCode },
-              timestamp: safeToDate(reg.registeredAt || (reg as any).createdAt),
-            });
-          });
+        } catch (e) {
+          console.warn("[useAdminAuditLogs] auditLogs collection check:", e);
         }
 
+        // 2. Fetch from legacy audit_logs collection for complete historical audit records
+        try {
+          const logsRef2 = collection(db, "audit_logs");
+          const snap2 = await getDocs(logsRef2);
+          snap2.docs.forEach((d) => {
+            if (!recordsMap.has(d.id)) {
+              const data = d.data();
+              const action = data.action || "SYSTEM_EVENT";
+              const actorName = data.actorName || data.actorEmail?.split("@")[0] || "Campus User";
+              const actorRole = (data.actorRole || "STUDENT").toUpperCase();
+              const targetType = data.targetType || "SYSTEM";
+              const targetId = data.targetId || data.targetUid || "";
+              const targetName = data.targetName || data.details?.eventTitle || data.details?.targetName || "";
+
+              const record: AuditLogRecord = {
+                id: d.id,
+                action,
+                actionCategory: data.actionCategory || inferActionCategory(action),
+                actorId: data.actorId || data.actorUid || "system",
+                actorName,
+                actorEmail: data.actorEmail || "system@apollouniversity.edu.in",
+                actorRole,
+                targetType,
+                targetId,
+                targetName,
+                description:
+                  data.description ||
+                  generateAuditDescription({
+                    action,
+                    actorName,
+                    actorRole,
+                    targetName,
+                    targetType,
+                  }),
+                status: data.status || "SUCCESS",
+                details: data.details || {},
+                changedFields: data.changedFields || undefined,
+                timestamp: safeToDate(data.timestamp || (data as any).createdAt),
+                userAgent: data.userAgent,
+                ipAddress: data.ipAddress,
+              };
+              recordsMap.set(d.id, record);
+            }
+          });
+        } catch (e) {
+          console.warn("[useAdminAuditLogs] audit_logs collection check:", e);
+        }
+
+        let list = Array.from(recordsMap.values());
         list.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
+        // Apply filters if provided
         if (filters?.action && filters.action !== "ALL") {
           list = list.filter((l) => l.action === filters.action);
         }
 
+        if (filters?.category && filters.category !== "ALL") {
+          list = list.filter((l) => l.actionCategory === filters.category);
+        }
+
+        if (filters?.role && filters.role !== "ALL") {
+          const roleTerm = filters.role.toUpperCase();
+          list = list.filter((l) => l.actorRole === roleTerm);
+        }
+
         if (filters?.actorEmail && filters.actorEmail.trim()) {
           const term = filters.actorEmail.toLowerCase().trim();
-          list = list.filter((l) => l.actorEmail.toLowerCase().includes(term));
+          list = list.filter(
+            (l) =>
+              l.actorEmail.toLowerCase().includes(term) ||
+              l.actorName.toLowerCase().includes(term) ||
+              (l.targetName && l.targetName.toLowerCase().includes(term))
+          );
         }
 
         return list;
@@ -266,7 +325,7 @@ export function useAdminAuditLogs(filters?: {
         return [];
       }
     },
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 15,
   });
 }
 
@@ -494,6 +553,21 @@ export function useSetUserRole() {
       } catch (fnErr) {
         console.warn("[Admin] Cloud function setUserRole notice (fallback active):", fnErr);
       }
+
+      // 3. Log immutable audit trail
+      logAuditEvent({
+        action: "USER_ROLE_CHANGED",
+        actionCategory: "USER_MANAGEMENT",
+        actorId: auth.currentUser?.uid || "admin",
+        actorName: auth.currentUser?.displayName || "Administrator",
+        actorEmail: auth.currentUser?.email || "",
+        actorRole: "ADMIN",
+        targetType: "USER",
+        targetId: payload.targetUid,
+        description: `Admin updated user role to ${payload.role.toUpperCase()} and status to ${payload.status}.`,
+        status: "SUCCESS",
+        details: { newRole: payload.role, newStatus: payload.status, rejectionReason: payload.rejectionReason },
+      });
 
       return { success: true };
     },

@@ -17,6 +17,8 @@ import {
 } from "@/lib/converters";
 import type { EventReport, Event, EventReportStatus } from "@/types";
 import { toast } from "sonner";
+import { createAuditLog } from "@/lib/audit";
+import { auth } from "@/lib/firebase";
 
 /**
  * 1. Fetch Single Event Post-Report by eventId
@@ -418,6 +420,20 @@ export function useSubmitEventReport() {
         console.warn("[useSubmitEventReport] event update notice:", err);
       });
 
+      createAuditLog({
+        action: "POST_EVENT_REPORT_SUBMITTED",
+        actionCategory: "REPORTS",
+        actorId: auth.currentUser?.uid || "faculty",
+        actorName: auth.currentUser?.displayName || "Faculty Member",
+        actorEmail: auth.currentUser?.email || "",
+        actorRole: "FACULTY",
+        targetType: "REPORT",
+        targetId: payload.eventId,
+        targetName: (payload.reportData as any)?.title || "Post-Event Report",
+        description: `Faculty submitted post-event outcome report for event ID ${payload.eventId}.`,
+        status: "SUCCESS",
+      });
+
       return {
         success: true,
         eventId: payload.eventId,
@@ -476,6 +492,20 @@ export function useReviewEventReport() {
         },
         { merge: true }
       ).catch(() => {});
+
+      createAuditLog({
+        action: payload.decision === "APPROVED" ? "POST_EVENT_REPORT_APPROVED" : "POST_EVENT_REPORT_REVISIONS_REQUESTED",
+        actionCategory: "REPORTS",
+        actorId: auth.currentUser?.uid || "admin",
+        actorName: auth.currentUser?.displayName || "Admin Officer",
+        actorEmail: auth.currentUser?.email || "",
+        actorRole: "ADMIN",
+        targetType: "REPORT",
+        targetId: payload.eventId,
+        description: `Admin reviewed post-event report with outcome: ${payload.decision}.`,
+        status: "SUCCESS",
+        details: { decision: payload.decision, feedback: payload.feedback },
+      });
 
       return {
         success: true,
