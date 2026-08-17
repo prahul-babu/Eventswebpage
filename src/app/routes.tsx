@@ -97,6 +97,7 @@ export const AppRoutes: React.FC = () => {
         <Route element={<AdminLayout />}>
           <Route path="/admin" element={<AdminDashboardPage />} />
           <Route path="/admin/events" element={<AdminEventsPage />} />
+          <Route path="/admin/events/:eventId/registrations" element={<EventRegistrantsPage />} />
           <Route path="/admin/approvals" element={<AdminApprovalsPage />} />
           <Route path="/admin/approvals/:eventId" element={<AdminEventReviewPage />} />
           <Route path="/admin/users" element={<AdminUsersPage />} />

@@ -10,6 +10,8 @@ import {
   Loader2,
   XCircle,
   Trash2,
+  Users,
+  FileCheck,
 } from "lucide-react";
 import { useAdminAllEvents, useDeleteEvent } from "@/lib/queries/admin";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -293,11 +295,25 @@ export const AdminEventsPage: React.FC = () => {
                                 <MoreVertical className="w-4 h-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-48 rounded-xl text-xs">
+                            <DropdownMenuContent align="end" className="w-52 rounded-2xl text-xs shadow-lg">
                               <DropdownMenuItem asChild>
                                 <Link to={`/events/${event.id}`} className="gap-2 cursor-pointer">
                                   <Eye className="w-3.5 h-3.5 text-slate-500" />
                                   <span>Public Preview</span>
+                                </Link>
+                              </DropdownMenuItem>
+
+                              <DropdownMenuItem asChild>
+                                <Link to={`/admin/events/${event.id}/registrations`} className="gap-2 cursor-pointer font-medium text-indigo-600">
+                                  <Users className="w-3.5 h-3.5" />
+                                  <span>Registered Students ({event.registeredCount || 0})</span>
+                                </Link>
+                              </DropdownMenuItem>
+
+                              <DropdownMenuItem asChild>
+                                <Link to={`/admin/reports/${event.id}`} className="gap-2 cursor-pointer">
+                                  <FileCheck className="w-3.5 h-3.5 text-slate-500" />
+                                  <span>Post-Event Report</span>
                                 </Link>
                               </DropdownMenuItem>
 

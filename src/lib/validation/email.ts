@@ -31,3 +31,5 @@ export function isValidOptionalEmail(email: unknown): boolean {
   if (trimmed === "") return true;
   return EMAIL_REGEX.test(trimmed);
 }
+
+export const isValidEmailFormat = isValidEmail;

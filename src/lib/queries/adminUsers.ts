@@ -21,12 +21,19 @@ import {
 } from "@/lib/converters";
 import type { User, UserRole, UserStatus, FacultyApplication } from "@/types";
 import { toast } from "sonner";
+import { sendPasswordResetEmail } from "firebase/auth";
 import {
   logAuditEvent,
   AuditLogRecord,
   inferActionCategory,
   generateAuditDescription,
 } from "@/lib/audit";
+import {
+  isValidOptionalPhoneNumber,
+  isValidEmailFormat,
+  PHONE_ERROR_MESSAGES,
+  sanitizeFirestoreData,
+} from "@/lib/validation";
 
 export interface SystemConfig {
   academicYear: string;
@@ -638,19 +645,186 @@ export function useImportRosterAllowlist() {
 export function useDeleteUser() {
   const queryClient = useQueryClient();
 
-  return useMutation<void, Error, { targetUid: string; email: string }>({
-    mutationFn: async ({ targetUid }) => {
-      await deleteDoc(doc(db, "users", targetUid));
+  return useMutation<void, Error, { targetUid: string; email: string; displayName?: string }>(
+    {
+      mutationFn: async ({ targetUid, email, displayName }) => {
+        await deleteDoc(doc(db, "users", targetUid));
+
+        logAuditEvent({
+          action: "USER_DELETED",
+          actionCategory: "USER_MANAGEMENT",
+          actorId: auth.currentUser?.uid || "admin",
+          actorName: auth.currentUser?.displayName || "Administrator",
+          actorEmail: auth.currentUser?.email || "",
+          actorRole: "ADMIN",
+          targetType: "USER",
+          targetId: targetUid,
+          targetName: displayName || email,
+          description: `Admin deleted user profile for ${displayName || email} (UID: ${targetUid}).`,
+          status: "SUCCESS",
+          details: { targetUid, email },
+        });
+      },
+      onSuccess: (_, variables) => {
+        queryClient.invalidateQueries({ queryKey: ["admin", "users-directory"] });
+        queryClient.invalidateQueries({ queryKey: ["admin", "dashboard-metrics"] });
+        toast.success("User Record Removed", {
+          description: `Removed record for ${variables.email} from directory.`,
+        });
+      },
+      onError: (err) => {
+        toast.error("Delete Failed", { description: err.message || "Failed to remove user record." });
+      },
+    }
+  );
+}
+
+/**
+ * Admin Secure Password Reset Mutation
+ * Never exposes the actual password or credentials.
+ * Sends official password reset mechanism and logs institutional audit event.
+ */
+export function useAdminResetUserPassword() {
+  return useMutation<
+    { success: boolean; email: string },
+    Error,
+    { targetUid: string; targetEmail: string; targetName?: string }
+  >({
+    mutationFn: async ({ targetUid, targetEmail, targetName }) => {
+      if (!targetEmail || !isValidEmailFormat(targetEmail)) {
+        throw new Error("Invalid target email address for password reset.");
+      }
+
+      await sendPasswordResetEmail(auth, targetEmail.trim());
+
+      logAuditEvent({
+        action: "PASSWORD_RESET_REQUESTED",
+        actionCategory: "AUTHENTICATION",
+        actorId: auth.currentUser?.uid || "admin",
+        actorName: auth.currentUser?.displayName || "Administrator",
+        actorEmail: auth.currentUser?.email || "",
+        actorRole: "ADMIN",
+        targetType: "USER",
+        targetId: targetUid,
+        targetName: targetName || targetEmail,
+        description: `Admin initiated secure password reset dispatch for ${targetEmail}.`,
+        status: "SUCCESS",
+        details: { targetUid, targetEmail },
+      });
+
+      return { success: true, email: targetEmail };
     },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["admin", "users-directory"] });
-      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard-metrics"] });
-      toast.success("User Record Removed", {
-        description: `Removed record for ${variables.email} from directory.`,
+    onSuccess: (data) => {
+      toast.success("Password Reset Link Dispatched", {
+        description: `A secure password reset link has been dispatched to ${data.email}.`,
       });
     },
     onError: (err) => {
-      toast.error("Delete Failed", { description: err.message || "Failed to remove user record." });
+      toast.error("Password Reset Failed", {
+        description: err.message || "Could not dispatch password reset link.",
+      });
+    },
+  });
+}
+
+export interface AdminEditUserInput {
+  uid: string;
+  displayName: string;
+  email?: string;
+  phoneNumber?: string;
+  alternateEmail?: string;
+  department?: string;
+  programme?: string;
+  year?: string;
+  section?: string;
+  rollNumber?: string;
+  employeeId?: string;
+  designation?: string;
+  school?: string;
+  role?: UserRole;
+  status?: UserStatus;
+}
+
+/**
+ * Admin Edit User Profile Mutation
+ * Modifies appropriate institutional fields with strict validation.
+ */
+export function useAdminEditUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ success: boolean }, Error, AdminEditUserInput>({
+    mutationFn: async (payload) => {
+      if (!payload.uid) throw new Error("Target user ID is missing.");
+      if (!payload.displayName?.trim()) throw new Error("Full name is required.");
+
+      if (payload.phoneNumber && !isValidOptionalPhoneNumber(payload.phoneNumber)) {
+        throw new Error(PHONE_ERROR_MESSAGES.INVALID);
+      }
+
+      if (payload.alternateEmail && !isValidEmailFormat(payload.alternateEmail)) {
+        throw new Error("Alternate email format is invalid.");
+      }
+
+      const updates: Record<string, any> = {
+        displayName: payload.displayName.trim(),
+        updatedAt: new Date(),
+      };
+
+      if (payload.phoneNumber !== undefined) {
+        updates.phoneNumber = payload.phoneNumber.trim();
+        updates.phone = payload.phoneNumber.trim();
+      }
+      if (payload.alternateEmail !== undefined) updates.alternateEmail = payload.alternateEmail.trim();
+      if (payload.department !== undefined) updates.department = payload.department.trim();
+      if (payload.programme !== undefined) updates.programme = payload.programme.trim();
+      if (payload.year !== undefined) updates.year = payload.year.trim();
+      if (payload.section !== undefined) updates.section = payload.section.trim();
+      if (payload.designation !== undefined) updates.designation = payload.designation.trim();
+      if (payload.school !== undefined) updates.school = payload.school.trim();
+      if (payload.role !== undefined) updates.role = payload.role;
+      if (payload.status !== undefined) updates.status = payload.status;
+
+      if (payload.rollNumber !== undefined) {
+        const roll = payload.rollNumber.trim().toUpperCase();
+        updates.rollNumber = roll;
+        updates.studentId = roll;
+      }
+      if (payload.employeeId !== undefined) {
+        const emp = payload.employeeId.trim().toUpperCase();
+        updates.employeeId = emp;
+        updates.facultyId = emp;
+      }
+
+      const sanitized = sanitizeFirestoreData(updates);
+      await setDoc(doc(db, "users", payload.uid), sanitized, { merge: true });
+
+      logAuditEvent({
+        action: "USER_UPDATED",
+        actionCategory: "USER_MANAGEMENT",
+        actorId: auth.currentUser?.uid || "admin",
+        actorName: auth.currentUser?.displayName || "Administrator",
+        actorEmail: auth.currentUser?.email || "",
+        actorRole: "ADMIN",
+        targetType: "USER",
+        targetId: payload.uid,
+        targetName: payload.displayName,
+        description: `Admin updated profile record for ${payload.displayName} (UID: ${payload.uid}).`,
+        status: "SUCCESS",
+        details: sanitized,
+      });
+
+      return { success: true };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "users-directory"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "user-detail", variables.uid] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard-metrics"] });
+      toast.success("User Profile Updated", {
+        description: `Changes saved for ${variables.displayName}.`,
+      });
+    },
+    onError: (err) => {
+      toast.error("Profile Update Failed", { description: err.message });
     },
   });
 }

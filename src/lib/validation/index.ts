@@ -4,3 +4,4 @@ export * from "./sanitize";
 export * from "./profile";
 export * from "./event";
 export * from "./report";
+export * from "./files";
