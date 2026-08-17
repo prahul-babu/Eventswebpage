@@ -12,8 +12,13 @@ import {
   Trash2,
   Users,
   FileCheck,
+  Edit,
+  Copy,
+  ShieldCheck,
 } from "lucide-react";
 import { useAdminAllEvents, useDeleteEvent } from "@/lib/queries/admin";
+import { AdminEventStatusModal } from "@/components/admin/AdminEventStatusModal";
+import { AdminDuplicateEventModal } from "@/components/admin/AdminDuplicateEventModal";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +50,12 @@ export const AdminEventsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<"createdAt" | "title" | "registeredCount">("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  // Status and Duplicate modals
+  const [statusModalOpen, setStatusModalOpen] = useState(false);
+  const [selectedEventForStatus, setSelectedEventForStatus] = useState<Event | null>(null);
+  const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
+  const [selectedEventForDuplicate, setSelectedEventForDuplicate] = useState<Event | null>(null);
 
   // Force cancel modal
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
@@ -262,9 +273,12 @@ export const AdminEventsPage: React.FC = () => {
                     return (
                       <tr key={event.id} className="hover:bg-slate-50/70 transition-colors">
                         <td className="p-4">
-                          <div className="font-bold text-slate-900 text-xs sm:text-sm max-w-[280px] truncate">
+                          <Link
+                            to={`/admin/events/${event.id}`}
+                            className="font-bold text-slate-900 hover:text-indigo-600 transition-colors text-xs sm:text-sm max-w-[280px] truncate block"
+                          >
                             {event.title}
-                          </div>
+                          </Link>
                           <div className="text-[10px] text-slate-500 truncate max-w-[280px]">
                             {event.organiserName} &bull; {event.department}
                           </div>
@@ -295,17 +309,24 @@ export const AdminEventsPage: React.FC = () => {
                                 <MoreVertical className="w-4 h-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-52 rounded-2xl text-xs shadow-lg">
+                            <DropdownMenuContent align="end" className="w-56 rounded-2xl text-xs shadow-xl">
                               <DropdownMenuItem asChild>
-                                <Link to={`/events/${event.id}`} className="gap-2 cursor-pointer">
-                                  <Eye className="w-3.5 h-3.5 text-slate-500" />
-                                  <span>Public Preview</span>
+                                <Link to={`/admin/events/${event.id}`} className="gap-2 cursor-pointer font-bold text-indigo-700">
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>Control Center &amp; Details</span>
                                 </Link>
                               </DropdownMenuItem>
 
                               <DropdownMenuItem asChild>
-                                <Link to={`/admin/events/${event.id}/registrations`} className="gap-2 cursor-pointer font-medium text-indigo-600">
-                                  <Users className="w-3.5 h-3.5" />
+                                <Link to={`/admin/events/${event.id}/edit`} className="gap-2 cursor-pointer font-medium">
+                                  <Edit className="w-3.5 h-3.5 text-indigo-600" />
+                                  <span>Edit Event</span>
+                                </Link>
+                              </DropdownMenuItem>
+
+                              <DropdownMenuItem asChild>
+                                <Link to={`/admin/events/${event.id}/registrations`} className="gap-2 cursor-pointer font-medium text-slate-700">
+                                  <Users className="w-3.5 h-3.5 text-slate-500" />
                                   <span>Registered Students ({event.registeredCount || 0})</span>
                                 </Link>
                               </DropdownMenuItem>
@@ -315,6 +336,28 @@ export const AdminEventsPage: React.FC = () => {
                                   <FileCheck className="w-3.5 h-3.5 text-slate-500" />
                                   <span>Post-Event Report</span>
                                 </Link>
+                              </DropdownMenuItem>
+
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelectedEventForStatus(event);
+                                  setStatusModalOpen(true);
+                                }}
+                                className="gap-2 cursor-pointer"
+                              >
+                                <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
+                                <span>Change Status</span>
+                              </DropdownMenuItem>
+
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelectedEventForDuplicate(event);
+                                  setDuplicateModalOpen(true);
+                                }}
+                                className="gap-2 cursor-pointer"
+                              >
+                                <Copy className="w-3.5 h-3.5 text-slate-600" />
+                                <span>Duplicate Event</span>
                               </DropdownMenuItem>
 
                               {event.status === "PENDING_APPROVAL" && (
@@ -465,6 +508,20 @@ export const AdminEventsPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Change Status Modal */}
+      <AdminEventStatusModal
+        open={statusModalOpen}
+        onOpenChange={setStatusModalOpen}
+        event={selectedEventForStatus}
+      />
+
+      {/* Duplicate Event Modal */}
+      <AdminDuplicateEventModal
+        open={duplicateModalOpen}
+        onOpenChange={setDuplicateModalOpen}
+        event={selectedEventForDuplicate}
+      />
     </div>
   );
 };

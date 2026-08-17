@@ -50,6 +50,8 @@ const AdminUserProfilePage = lazy(() => import("@/pages/admin/AdminUserProfilePa
 const AdminUserImportPage = lazy(() => import("@/pages/admin/AdminUserImportPage"));
 const AdminReportsPage = lazy(() => import("@/pages/admin/AdminReportsPage"));
 const AdminReportReviewPage = lazy(() => import("@/pages/admin/AdminReportReviewPage"));
+const AdminEventDetailPage = lazy(() => import("@/pages/admin/AdminEventDetailPage"));
+const AdminEventEditPage = lazy(() => import("@/pages/admin/AdminEventEditPage"));
 const AdminAnalyticsPage = lazy(() => import("@/pages/admin/AdminAnalyticsPage"));
 const AdminSettingsPage = lazy(() => import("@/pages/admin/AdminSettingsPage"));
 const AdminAuditLogsPage = lazy(() => import("@/pages/admin/AdminAuditLogsPage"));
@@ -97,6 +99,8 @@ export const AppRoutes: React.FC = () => {
         <Route element={<AdminLayout />}>
           <Route path="/admin" element={<AdminDashboardPage />} />
           <Route path="/admin/events" element={<AdminEventsPage />} />
+          <Route path="/admin/events/:eventId" element={<AdminEventDetailPage />} />
+          <Route path="/admin/events/:eventId/edit" element={<AdminEventEditPage />} />
           <Route path="/admin/events/:eventId/registrations" element={<EventRegistrantsPage />} />
           <Route path="/admin/approvals" element={<AdminApprovalsPage />} />
           <Route path="/admin/approvals/:eventId" element={<AdminEventReviewPage />} />

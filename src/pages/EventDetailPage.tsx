@@ -19,6 +19,7 @@ import {
   Ticket,
   Maximize2,
   X,
+  Edit,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useEventDetail, useEventUserRegistration } from "@/lib/queries/registrations";
@@ -264,9 +265,9 @@ export const EventDetailPage: React.FC = () => {
 
   return (
     <div className="space-y-8 pb-24 lg:pb-12">
-      {/* Top Breadcrumb Navigation Bar */}
-      <div className="border-b bg-white/70 backdrop-blur-sm py-3 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+      {/* Top Breadcrumb & Admin Management Bar */}
+      <div className="border-b bg-white/80 backdrop-blur-sm py-3 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
           <Link
             to="/events"
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors"
@@ -274,6 +275,24 @@ export const EventDetailPage: React.FC = () => {
             <ArrowLeft className="w-4 h-4" />
             <span>Back to Events Catalog</span>
           </Link>
+
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              <Badge variant="amber" className="text-[10px] font-bold">Admin Console</Badge>
+              <Button asChild size="sm" variant="outline" className="rounded-xl text-xs font-bold gap-1.5 h-8 bg-amber-50/60 border-amber-200 text-amber-900 hover:bg-amber-100">
+                <Link to={`/admin/events/${event.id}`}>
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Control Center</span>
+                </Link>
+              </Button>
+              <Button asChild size="sm" className="rounded-xl text-xs font-bold gap-1.5 h-8 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs">
+                <Link to={`/admin/events/${event.id}/edit`}>
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>Edit Event</span>
+                </Link>
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
