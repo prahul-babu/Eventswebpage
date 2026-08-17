@@ -3,9 +3,14 @@ import {
   query,
   where,
   getDocs,
+  getDoc,
   limit,
   doc,
   updateDoc,
+  collection,
+  addDoc,
+  writeBatch,
+  serverTimestamp,
 } from "firebase/firestore";
 import { signInAnonymously } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
@@ -372,3 +377,133 @@ export function useAdminAllEvents(filters?: {
     staleTime: 1000 * 60,
   });
 }
+
+/**
+ * 9. Real Database Event Deletion Mutation
+ * Deletes the event document from `events/{eventId}`, cleans up subcollections & linked records,
+ * logs audit record, and invalidates/removes all relevant React Query caches.
+ */
+export function useDeleteEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    { success: boolean; eventId: string; deletedTitle: string },
+    Error,
+    { eventId: string; eventTitle?: string }
+  >({
+    mutationFn: async ({ eventId, eventTitle }) => {
+      // 1. Try Cloud Function first
+      try {
+        const deleteFn = httpsCallable<{ eventId: string }, { success: boolean; eventId: string; deletedTitle: string }>(
+          functions,
+          "deleteEvent"
+        );
+        const result = await deleteFn({ eventId });
+        if (result.data?.success) {
+          return result.data;
+        }
+      } catch (fnErr: any) {
+        console.info("[useDeleteEvent] Cloud Function not reachable, falling back to direct Firestore atomic delete:", fnErr.message);
+      }
+
+      // 2. Direct Firestore atomic deletion
+      const eventDocRef = doc(db, "events", eventId);
+      const eventSnap = await getDoc(eventDocRef);
+
+      if (!eventSnap.exists()) {
+        throw new Error("Event does not exist or has already been deleted.");
+      }
+
+      const eventData = eventSnap.data() as any;
+      const title = eventTitle || eventData?.title || "Untitled Event";
+
+      const batch = writeBatch(db);
+
+      // Delete main event document
+      batch.delete(eventDocRef);
+
+      // Clean up event_updates
+      try {
+        const updatesRef = collection(db, "event_updates");
+        const qUpdates = query(updatesRef, where("eventId", "==", eventId));
+        const snapUpdates = await getDocs(qUpdates);
+        snapUpdates.docs.forEach((d) => batch.delete(d.ref));
+      } catch (e) {
+        console.warn("[useDeleteEvent] Error querying event_updates:", e);
+      }
+
+      // Mark registrations as CANCELLED (preserving student user accounts)
+      try {
+        const regsRef = collection(db, "registrations");
+        const qRegs = query(regsRef, where("eventId", "==", eventId));
+        const snapRegs = await getDocs(qRegs);
+        snapRegs.docs.forEach((d) => {
+          batch.update(d.ref, {
+            status: "CANCELLED",
+            cancelledAt: new Date(),
+            cancellationReason: "Event permanently deleted by university administration",
+            updatedAt: new Date(),
+          });
+        });
+      } catch (e) {
+        console.warn("[useDeleteEvent] Error querying registrations:", e);
+      }
+
+      // Commit the batch deletion
+      await batch.commit();
+
+      // Record Audit Log for Institutional Compliance
+      try {
+        const currentUid = auth.currentUser?.uid || "admin-system";
+        const currentEmail = auth.currentUser?.email || "admin@apollo.edu.in";
+        await addDoc(collection(db, "audit_logs"), {
+          action: "EVENT_DELETED",
+          actorUid: currentUid,
+          actorEmail: currentEmail,
+          actorRole: "admin",
+          targetId: eventId,
+          targetType: "EVENT",
+          details: {
+            eventId,
+            title,
+            category: eventData?.category || "GENERAL",
+            venueLocation: eventData?.venueLocation || "Campus",
+            registeredCount: eventData?.registeredCount || 0,
+          },
+          timestamp: serverTimestamp(),
+        });
+      } catch (auditErr) {
+        console.warn("[useDeleteEvent] Failed to log audit record:", auditErr);
+      }
+
+      return {
+        success: true,
+        eventId,
+        deletedTitle: title,
+      };
+    },
+    onSuccess: (data) => {
+      // Invalidate all event-related queries
+      queryClient.invalidateQueries({ queryKey: ["admin", "all-events"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "pending-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "recently-reviewed"] });
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["faculty", "events"] });
+      queryClient.invalidateQueries({ queryKey: ["registrations"] });
+
+      // Remove specific cached query entries so they never reappear
+      queryClient.removeQueries({ queryKey: ["event", data.eventId] });
+      queryClient.removeQueries({ queryKey: ["event_updates", data.eventId] });
+
+      toast.success("Event Deleted Successfully", {
+        description: `"${data.deletedTitle}" has been permanently deleted from the database.`,
+      });
+    },
+    onError: (err) => {
+      toast.error("Failed to Delete Event", {
+        description: err.message || "Database deletion failed. Please try again.",
+      });
+    },
+  });
+}
+

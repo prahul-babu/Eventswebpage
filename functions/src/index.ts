@@ -45,6 +45,7 @@ export { approveEvent } from "./events/approveEvent";
 export { rejectEvent } from "./events/rejectEvent";
 export { bulkApproveEvents } from "./events/bulkApproveEvents";
 export { updateEventStatuses } from "./events/updateEventStatuses";
+export { deleteEvent } from "./events/deleteEvent";
 
 // Module 10: Post-Event Reporting Callables
 export { submitEventReport } from "./reports/submitEventReport";

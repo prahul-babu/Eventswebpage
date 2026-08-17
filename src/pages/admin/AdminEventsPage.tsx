@@ -9,8 +9,9 @@ import {
   ArrowUpDown,
   Loader2,
   XCircle,
+  Trash2,
 } from "lucide-react";
-import { useAdminAllEvents } from "@/lib/queries/admin";
+import { useAdminAllEvents, useDeleteEvent } from "@/lib/queries/admin";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -48,7 +49,12 @@ export const AdminEventsPage: React.FC = () => {
   const [targetEvent, setTargetEvent] = useState<Event | null>(null);
   const [cancelReason, setCancelReason] = useState("");
 
+  // Delete event modal
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [eventToDelete, setEventToDelete] = useState<Event | null>(null);
+
   const { data: allEvents, isLoading } = useAdminAllEvents();
+  const deleteEventMutation = useDeleteEvent();
 
   // Filtered & Sorted Events
   const filteredEvents = useMemo(() => {
@@ -92,6 +98,20 @@ export const AdminEventsPage: React.FC = () => {
     setCancelModalOpen(false);
     setTargetEvent(null);
     setCancelReason("");
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!eventToDelete) return;
+    try {
+      await deleteEventMutation.mutateAsync({
+        eventId: eventToDelete.id,
+        eventTitle: eventToDelete.title,
+      });
+      setDeleteModalOpen(false);
+      setEventToDelete(null);
+    } catch {
+      // toast is automatically displayed by mutation
+    }
   };
 
   const getStatusBadge = (status: EventStatus) => {
@@ -298,12 +318,23 @@ export const AdminEventsPage: React.FC = () => {
                                     setTargetEvent(event);
                                     setCancelModalOpen(true);
                                   }}
-                                  className="gap-2 cursor-pointer text-rose-600 font-semibold"
+                                  className="gap-2 cursor-pointer text-amber-700 font-semibold"
                                 >
                                   <XCircle className="w-3.5 h-3.5" />
                                   <span>Force Cancel &amp; Refund</span>
                                 </DropdownMenuItem>
                               )}
+
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setEventToDelete(event);
+                                  setDeleteModalOpen(true);
+                                }}
+                                className="gap-2 cursor-pointer text-rose-600 font-semibold focus:text-rose-700 focus:bg-rose-50"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete Event</span>
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </td>
@@ -327,7 +358,7 @@ export const AdminEventsPage: React.FC = () => {
       <Dialog open={cancelModalOpen} onOpenChange={setCancelModalOpen}>
         <DialogContent className="max-w-md rounded-2xl p-6">
           <DialogHeader className="text-left space-y-2">
-            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
               <AlertTriangle className="w-5 h-5" />
             </div>
             <DialogTitle className="text-lg font-bold text-slate-900">
@@ -335,7 +366,7 @@ export const AdminEventsPage: React.FC = () => {
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500 leading-relaxed">
               This will update <strong className="text-slate-900">"{targetEvent?.title}"</strong> to{" "}
-              <strong className="text-rose-600">CANCELLED</strong> and automatically trigger Razorpay refunds for all confirmed paid attendees.
+              <strong className="text-amber-600">CANCELLED</strong> and automatically trigger Razorpay refunds for all confirmed paid attendees.
             </DialogDescription>
           </DialogHeader>
 
@@ -361,9 +392,59 @@ export const AdminEventsPage: React.FC = () => {
             <Button
               size="sm"
               onClick={handleForceCancel}
-              className="w-full sm:w-auto rounded-xl text-xs bg-rose-600 hover:bg-rose-700 text-white font-bold"
+              className="w-full sm:w-auto rounded-xl text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold"
             >
               Confirm Cancellation &amp; Refunds
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Event Permanently Confirmation Dialog */}
+      <Dialog
+        open={deleteModalOpen}
+        onOpenChange={(open) => !deleteEventMutation.isPending && setDeleteModalOpen(open)}
+      >
+        <DialogContent className="max-w-md rounded-2xl p-6">
+          <DialogHeader className="text-left space-y-2">
+            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <DialogTitle className="text-lg font-bold text-slate-900">
+              Permanently Delete Event?
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 leading-relaxed">
+              Are you sure you want to permanently delete <strong className="text-slate-900 font-bold">"{eventToDelete?.title}"</strong>?
+              <span className="block mt-2 text-rose-600 font-medium">
+                This will permanently remove the event document from the database, cancel associated registrations, remove event updates, and log the action in campus audit logs. This operation cannot be undone.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="pt-4 flex flex-col sm:flex-row items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={deleteEventMutation.isPending}
+              onClick={() => setDeleteModalOpen(false)}
+              className="w-full sm:w-auto rounded-xl text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={deleteEventMutation.isPending}
+              onClick={handleConfirmDelete}
+              className="w-full sm:w-auto rounded-xl text-xs bg-rose-600 hover:bg-rose-700 text-white font-bold"
+            >
+              {deleteEventMutation.isPending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  <span>Deleting from Database...</span>
+                </>
+              ) : (
+                "Permanently Delete Event"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
